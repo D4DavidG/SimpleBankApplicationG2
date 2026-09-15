@@ -47,15 +47,7 @@ from .models import Account, Transaction, User
 def money(cents: int) -> int:
     """The rule from the module docstring, in one place.
 
-    It is an identity function today, and it stays because it is the one seam
-    where the wire representation of money is decided. When this returned a
-    formatted string it was the only edit needed to change that format; keeping
-    it means the next such change is still one function rather than nine call
-    sites, and `grep money(` still lists every monetary field in the API.
-
-    Deliberately not `format_money`: no thousands separators and no currency
-    symbol. Grouping and symbols are presentation, they vary by locale, and they
-    have no business in an interchange format.
+    It is an identity function today. It could make a change to how money works easier in the future.
     """
     return cents
 
