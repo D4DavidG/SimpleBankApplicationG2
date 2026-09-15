@@ -150,9 +150,11 @@ Withdraw
         insufficient funds
         this client_txn_id has already been used
     NOTES:
-        The check is against available_for_withdrawal, not balance. A savings
-        account holds a minimum of 25.00, so a savings account with 30.00 can
-        only release 5.00.
+        The check is against available_for_withdrawal, not balance. Those are
+        the same number today, because no account type holds a minimum at the
+        moment. They stop being the same as soon as one does, so read
+        available_for_withdrawal from the account and do not assume the balance
+        is all reachable.
 
 Transfer
     PATH: /api/transfers
@@ -376,13 +378,15 @@ AccountView (as the server actually sends it)
         string status,                 ("ACTIVE" or "FROZEN")
         string balance,                ("1234.56")
         string availableForWithdrawal, (balance minus any minimum)
-        string minimumBalance,         ("0.00" checking, "25.00" savings)
+        string minimumBalance,         ("0.00" for both types at present)
         string createdAt
     }
-    availableForWithdrawal is sent alongside balance because for a savings
-    account they are different numbers. A client that worked it out for itself
-    would have to duplicate the minimum-balance rule; sending both keeps that
-    rule in one place and still lets the UI grey out the submit button.
+    availableForWithdrawal is sent alongside balance because the two are not the
+    same idea, even while they hold the same number. No account type keeps a
+    minimum today, so they are equal; a client that treated that as permanent and
+    offered the balance as withdrawable would be wrong the day one does.
+    Read availableForWithdrawal, and the rule stays in one place - the account
+    class - rather than being copied into the frontend.
 
 UserView
     {

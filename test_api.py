@@ -21,6 +21,7 @@ seed gets one test class of its own.
 import json
 import threading
 import unittest
+from decimal import Decimal
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -28,6 +29,7 @@ from http.server import ThreadingHTTPServer
 from bank import BankAPI, BankService, BankStore
 from bank import seed as seed_module
 from bank.api import make_handler_class
+from bank.models import SavingsAccount
 from bank.security import hash_password, issue_token, read_token, verify_password
 
 PASSWORD = "CorrectHorse1!"
@@ -384,12 +386,23 @@ class TestMoneyOverHttp(ApiTestCase):
         self.assertEqual(body["account"]["balance"], "100.00")
 
     def test_savings_minimum_is_enforced_through_the_api(self):
-        """500.00 held, 25.00 minimum, so 475.00 is available and 475.01 is not.
-        No route knows this rule; the SavingsAccount subclass does."""
+        """The floor a savings account holds is visible in the response and
+        enforced on withdrawal, whatever that floor is set to.
+
+        Derived from `SavingsAccount.MINIMUM` rather than hardcoded: the minimum
+        is 0.00 today, so the whole balance is withdrawable, but the shape of the
+        rule is what is being tested. No route knows it; the subclass does.
+        """
+        available = self.a_savings.balance - SavingsAccount.MINIMUM
+
         _, body = self.get(f"/api/accounts/{self.a_savings.account_id}", self.aaron)
-        self.assertEqual(body["account"]["availableForWithdrawal"], "475.00")
+        self.assertEqual(body["account"]["availableForWithdrawal"], f"{available:.2f}")
+        self.assertEqual(body["account"]["minimumBalance"],
+                         f"{SavingsAccount.MINIMUM:.2f}")
+
         status, _ = self.post(f"/api/accounts/{self.a_savings.account_id}/withdraw",
-                              {"amount": "475.01"}, self.aaron)
+                              {"amount": f"{available + Decimal('0.01'):.2f}"},
+                              self.aaron)
         self.assertEqual(status, 409)
 
     def test_bad_amounts_are_400_before_anything_moves(self):

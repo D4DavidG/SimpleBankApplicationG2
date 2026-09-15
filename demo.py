@@ -77,16 +77,25 @@ def main():
     attempt("deposit a float instead of a string",
             lambda: svc.deposit(checking.account_id, 10.50, aaron))
 
-    rule("3. Savings accounts hold a minimum (polymorphism, not an if-statement)")
+    rule("3. The account type decides what may leave (polymorphism, not an if)")
+    # Read the limit off the account instead of writing a number here. This
+    # section used to hardcode 475.01 against a 25.00 savings minimum; the
+    # minimum is 0.00 now, and the demo keeps working because it asks the object
+    # the same question `services.py` asks.
+    available = savings.available_for_withdrawal()
     ok(f"savings balance {format_money(savings.balance)}, "
        f"minimum {format_money(savings.minimum_balance)}, "
-       f"available {format_money(savings.available_for_withdrawal())}")
-    attempt("withdraw 475.01, one cent past the minimum",
-            lambda: svc.withdraw(savings.account_id, "475.01", aaron))
-    svc.withdraw(savings.account_id, "475.00", aaron)
-    ok(f"withdrew 475.00, balance now {format_money(savings.balance)} (at the minimum)")
+       f"available {format_money(available)}")
+    over = available + Decimal("0.01")
+    attempt(f"withdraw {format_money(over)}, one cent past what may leave",
+            lambda: svc.withdraw(savings.account_id, f"{over:.2f}", aaron))
+    svc.withdraw(savings.account_id, f"{available:.2f}", aaron)
+    ok(f"withdrew {format_money(available)}, balance now "
+       f"{format_money(savings.balance)} (at the minimum)")
     print("     note: services.py never checks the account type. It calls")
     print("     account.can_withdraw(), and the subclass supplies the rule.")
+    print("     Both types hold 0.00 today, so nothing is held back - the point")
+    print("     is that raising the minimum needs no change in services.py.")
 
     rule("4. Decimal precision")
     # Account 20 from the seed file: one deposit and two withdrawals that come to

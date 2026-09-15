@@ -12,10 +12,16 @@ Three object-oriented decisions worth defending in review:
    `balance == sum(ledger)` would be unenforceable.
 
 2. **Inheritance with a real difference.** `CheckingAccount` and `SavingsAccount`
-   differ in one rule: savings accounts hold a minimum balance. That difference
-   lives in an overridden `available_for_withdrawal()`, so the withdraw logic in
-   the service layer does not branch on account type. Adding a third account type
-   later means adding a class, not editing an `if`.
+   differ in one rule: how much of the balance may actually leave. That difference
+   lives in an overridden `minimum_balance`, read by `available_for_withdrawal()`,
+   so the withdraw logic in the service layer does not branch on account type.
+   Adding a third account type later means adding a class, not editing an `if`.
+
+   `SavingsAccount.MINIMUM` is 0.00 at the moment, which makes the two types
+   behave identically today. That is a policy setting, not a change of shape: the
+   polymorphic path is what the service layer calls either way, so a floor can
+   come back by editing one constant rather than by threading a new rule through
+   `withdraw`, `transfer` and the serializers.
 
 3. **Python has no method overloading.** That was question 2 of Module 2. Java
    picks between same-named methods by parameter list at compile time; Python
@@ -191,9 +197,15 @@ class CheckingAccount(Account):
 class SavingsAccount(Account):
     """Holds a minimum balance. This is the only behavioural difference, and it
     is expressed by overriding `minimum_balance` rather than by the service layer
-    checking `isinstance`."""
+    checking `isinstance`.
 
-    MINIMUM = Decimal("25.00")
+    The minimum is currently 0.00, so in practice a savings account behaves like
+    a checking account today. The override is still the seam: raising this one
+    constant is the entire change needed to reintroduce a floor, and no service,
+    route or test has to learn about it.
+    """
+
+    MINIMUM = Decimal("0.00")
 
     @property
     def account_type(self) -> str:

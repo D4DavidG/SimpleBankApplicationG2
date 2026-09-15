@@ -49,7 +49,7 @@ VARIABLES = {
     "adminEmail": "david.gusmao@example.com",
     "password": "BankDemo123!",
     "accountId": "1",                  # Aaron's checking, 2,480.00
-    "savingsAccountId": "2",           # Aaron's savings, 15,750.00, 25.00 minimum
+    "savingsAccountId": "2",           # Aaron's savings, 15,750.00, no minimum held
     "otherUsersAccountId": "9",        # Daniel Tran's. Used to prove the IDOR is closed.
     "frozenAccountId": "10",           # seeded FROZEN
     "lowBalanceAccountId": "6",        # 12.50, for the overdraft case

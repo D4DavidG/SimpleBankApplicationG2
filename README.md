@@ -435,9 +435,10 @@ The brief lists three. These are the nine actually implemented, all in
 
 1. Amounts are positive, at most 2 decimal places, and below a per-transaction
    ceiling of 1,000,000.
-2. A withdrawal may not exceed what is **available**, which for a savings account
-   is the balance minus a 25.00 minimum. The service never checks the account
-   type to work this out — it asks the object.
+2. A withdrawal may not exceed what is **available**, which is the balance minus
+   whatever minimum the account type holds. Both types hold 0.00 at present, so
+   available equals the balance; the service still never checks the account type
+   to work this out — it asks the object.
 3. Frozen accounts reject all customer-initiated movement. Admin adjustments are
    still allowed, because correcting an account is a normal reason to have frozen
    it.
@@ -569,12 +570,18 @@ alongside a ledger entry. If `balance` were a public attribute, the invariant
 `balance == sum(ledger)` would be unenforceable, because any line of code could
 break it. There is a test asserting the setter does not exist.
 
-**Inheritance with a real behavioural difference.** `SavingsAccount` holds a
-25.00 minimum; `CheckingAccount` does not. That difference lives in an overridden
-`minimum_balance`, and `withdraw()` in `services.py` calls
-`account.can_withdraw()` without ever checking the account type. Adding a third
-account type means adding a class, not editing an `if`. This is the difference
-between inheritance that earns its place and inheritance as decoration.
+**Inheritance at the point where the types can differ.** How much of a balance
+may actually leave is a per-type rule, and it lives in an overridden
+`minimum_balance` on `SavingsAccount`. `withdraw()` in `services.py` calls
+`account.can_withdraw()` without ever checking the account type, so adding a
+third account type means adding a class, not editing an `if`.
+
+Worth being straight about the current state: `SavingsAccount.MINIMUM` is 0.00,
+so the two types behave identically today and the override changes nothing an
+observer could see. The claim being made here is about where the rule is written,
+not about how much the two classes presently differ — the honest test of that is
+that restoring a floor is a one-constant edit with no change to `withdraw`,
+`transfer`, the serializers or the routes.
 
 **Python has no method overloading.** That was question 2 of Module 2. Java
 selects between same-named methods by parameter list at compile time; Python

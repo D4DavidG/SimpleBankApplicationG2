@@ -129,12 +129,22 @@ class TestWithdraw(BankTestCase):
         self.assertEqual(before, after)
 
     def test_savings_minimum_balance_is_enforced_polymorphically(self):
-        """500.00 in savings, 25.00 minimum, so 475.00 is available and 475.01 is not.
-        The service layer never checks the account type to work this out."""
-        self.assertEqual(self.a_savings.available_for_withdrawal(), Decimal("475.00"))
+        """A savings account may be drawn down to its minimum and no further.
+
+        Every number here is derived from `SavingsAccount.MINIMUM` rather than
+        written out, so this test states the rule instead of one instance of it.
+        The minimum is 0.00 today, which makes the withdrawable amount the whole
+        balance; when it was 25.00 the same three assertions held. The service
+        layer never checks the account type to work any of this out.
+        """
+        balance = self.a_savings.balance
+        available = balance - SavingsAccount.MINIMUM
+        self.assertEqual(self.a_savings.available_for_withdrawal(), available)
+
         with self.assertRaises(InsufficientFunds):
-            self.svc.withdraw(self.a_savings.account_id, "475.01", self.aaron)
-        self.svc.withdraw(self.a_savings.account_id, "475.00", self.aaron)
+            self.svc.withdraw(self.a_savings.account_id,
+                              str(available + Decimal("0.01")), self.aaron)
+        self.svc.withdraw(self.a_savings.account_id, str(available), self.aaron)
         self.assertEqual(self.a_savings.balance, SavingsAccount.MINIMUM)
 
     def test_checking_has_no_minimum(self):
