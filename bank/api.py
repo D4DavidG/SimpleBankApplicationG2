@@ -336,8 +336,20 @@ class BankAPI:
     # ------------------------------------------------------------------ auth
 
     def health(self, request: Request) -> tuple[int, dict]:
-        """Liveness check. Useful for confirming the server is up before a demo."""
-        return 200, {"status": "ok", "accounts": len(self.service.store.all_accounts())}
+        """Liveness check. Useful for confirming the server is up before a demo.
+
+        Answers whether the process is up, and nothing else. It used to include
+        the account count, which was handy for seeing at a glance that the seed
+        had run, but it was the wrong thing to put here twice over: it is a
+        business figure on the one route that needs no token, and counting rows
+        makes a liveness check get slower as the data grows - once this is MySQL
+        it is a query, and a slow database would start failing health checks on a
+        server that is perfectly alive.
+
+        The count is still available to an admin from GET /api/admin/reconciliation,
+        which reports `checked`.
+        """
+        return 200, {"status": "ok"}
 
     def register(self, request: Request) -> tuple[int, dict]:
         """Create a customer and log them straight in.

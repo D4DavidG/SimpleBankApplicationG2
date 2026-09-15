@@ -963,7 +963,7 @@
                 "health"
               ]
             },
-            "description": "No token required. Confirms the server is up and says how many accounts are loaded."
+            "description": "No token required. Confirms the server is up, and says nothing else - a route that needs no token should not describe the bank's data."
           }
         }
       ]

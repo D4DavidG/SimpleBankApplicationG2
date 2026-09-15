@@ -59,8 +59,8 @@ VARIABLES = {
 EXAMPLES = {
     ("GET", "/api/health"): (
         "Health check",
-        "No token required. Confirms the server is up and says how many accounts "
-        "are loaded.", None),
+        "No token required. Confirms the server is up, and says nothing else - a "
+        "route that needs no token should not describe the bank's data.", None),
 
     ("POST", "/api/auth/register"): (
         "Register a new customer",
