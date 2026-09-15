@@ -8,7 +8,6 @@ No input required and no server needed, so it is safe to run during a demo
 without typing under pressure or hoping a port is free.
 """
 import json
-from decimal import Decimal
 
 from bank import (
     AccountNotActive, AccountNotFound, BankAPI, BankError, BankService, BankStore,
@@ -53,9 +52,9 @@ def main():
     ok(f"registered {erik}")
     ok(f"registered {david}  (role: {david.role})")
 
-    checking = svc.open_account(aaron, "CHECKING", "12.50")
-    savings = svc.open_account(aaron, "SAVINGS", "500.00")
-    erik_acct = svc.open_account(erik, "CHECKING", "84210.75")
+    checking = svc.open_account(aaron, "CHECKING", 1250)
+    savings = svc.open_account(aaron, "SAVINGS", 50000)
+    erik_acct = svc.open_account(erik, "CHECKING", 8421075)
     for acct in (checking, savings, erik_acct):
         ok(str(acct))
 
@@ -63,33 +62,35 @@ def main():
             lambda: svc.register_user("Impostor", "AARON.FORRESTER@example.com"))
 
     rule("2. Deposits and withdrawals")
-    svc.deposit(checking.account_id, "100.00", aaron)
+    svc.deposit(checking.account_id, 10000, aaron)
     ok(f"deposited 100.00, balance now {format_money(checking.balance)}")
-    svc.withdraw(checking.account_id, "12.50", aaron)
+    svc.withdraw(checking.account_id, 1250, aaron)
     ok(f"withdrew 12.50, balance now {format_money(checking.balance)}")
 
     attempt("withdraw 999.00 from a balance of 100.00",
-            lambda: svc.withdraw(checking.account_id, "999.00", aaron))
+            lambda: svc.withdraw(checking.account_id, 99900, aaron))
     attempt("deposit a negative amount",
-            lambda: svc.deposit(checking.account_id, "-50.00", aaron))
-    attempt("deposit 10.555 (three decimal places)",
-            lambda: svc.deposit(checking.account_id, "10.555", aaron))
-    attempt("deposit a float instead of a string",
+            lambda: svc.deposit(checking.account_id, -5000, aaron))
+    attempt("deposit zero",
+            lambda: svc.deposit(checking.account_id, 0, aaron))
+    attempt('deposit "50.00" as a dollars-and-cents string',
+            lambda: svc.deposit(checking.account_id, "50.00", aaron))
+    attempt("deposit a float instead of an int",
             lambda: svc.deposit(checking.account_id, 10.50, aaron))
 
     rule("3. The account type decides what may leave (polymorphism, not an if)")
     # Read the limit off the account instead of writing a number here. This
     # section used to hardcode 475.01 against a 25.00 savings minimum; the
-    # minimum is 0.00 now, and the demo keeps working because it asks the object
-    # the same question `services.py` asks.
+    # minimum is 0 now, and the demo keeps working because it asks the object the
+    # same question `services.py` asks.
     available = savings.available_for_withdrawal()
     ok(f"savings balance {format_money(savings.balance)}, "
        f"minimum {format_money(savings.minimum_balance)}, "
        f"available {format_money(available)}")
-    over = available + Decimal("0.01")
+    over = available + 1
     attempt(f"withdraw {format_money(over)}, one cent past what may leave",
-            lambda: svc.withdraw(savings.account_id, f"{over:.2f}", aaron))
-    svc.withdraw(savings.account_id, f"{available:.2f}", aaron)
+            lambda: svc.withdraw(savings.account_id, over, aaron))
+    svc.withdraw(savings.account_id, available, aaron)
     ok(f"withdrew {format_money(available)}, balance now "
        f"{format_money(savings.balance)} (at the minimum)")
     print("     note: services.py never checks the account type. It calls")
@@ -97,24 +98,26 @@ def main():
     print("     Both types hold 0.00 today, so nothing is held back - the point")
     print("     is that raising the minimum needs no change in services.py.")
 
-    rule("4. Decimal precision")
+    rule("4. Precision: money is a whole number of cents")
     # Account 20 from the seed file: one deposit and two withdrawals that come to
-    # exactly 72.10 in Decimal and 72.10000000000001 in float.
+    # exactly 7210 cents in integers, and 72.10000000000001 in float.
     precise = svc.open_account(aaron, "CHECKING")
-    svc.deposit(precise.account_id, "115.36", aaron)
-    for amount in ["39.80", "3.46"]:
+    svc.deposit(precise.account_id, 11536, aaron)
+    for amount in [3980, 346]:
         svc.withdraw(precise.account_id, amount, aaron)
     drift = 115.36 - 39.80 - 3.46
-    ok("115.36 - 39.80 - 3.46")
-    ok(f"  Decimal : {precise.balance}")
+    ok("115.36 - 39.80 - 3.46, done as 11536 - 3980 - 346")
+    ok(f"  cents   : {precise.balance}  ->  {format_money(precise.balance)}")
     print(f"  [float] : {drift!r}   <- what the same arithmetic gives in float")
+    print("     note: the integer answer is not rounded to look right. It is the")
+    print("     only answer integer subtraction can produce.")
 
     rule("5. Idempotency: the double-clicked submit button")
     before = checking.balance
-    svc.deposit(checking.account_id, "25.00", aaron, client_txn_id="submit-0001")
+    svc.deposit(checking.account_id, 2500, aaron, client_txn_id="submit-0001")
     ok(f"first submit applied, balance {format_money(checking.balance)}")
     attempt("the same submission again (same client_txn_id)",
-            lambda: svc.deposit(checking.account_id, "25.00", aaron,
+            lambda: svc.deposit(checking.account_id, 2500, aaron,
                                 client_txn_id="submit-0001"))
     ok(f"balance unchanged at {format_money(checking.balance)} "
        f"(was {format_money(before)} before the first)")
@@ -125,7 +128,7 @@ def main():
     attempt("Aaron reads Erik's account",
             lambda: svc.get_account_for(erik_acct.account_id, aaron))
     attempt("Aaron withdraws from Erik's account",
-            lambda: svc.withdraw(erik_acct.account_id, "1000.00", aaron))
+            lambda: svc.withdraw(erik_acct.account_id, 100000, aaron))
     attempt("Aaron reads an account id that does not exist at all",
             lambda: svc.get_account_for(99999, aaron))
     print("     note: identical error for 'not yours' and 'does not exist'.")
@@ -138,9 +141,9 @@ def main():
     attempt("Aaron freezes an account",
             lambda: svc.set_frozen(erik_acct.account_id, True, "because I felt like it", aaron))
     attempt("admin adjusts with a one-word reason",
-            lambda: svc.adjust(checking.account_id, "50.00", "CREDIT", "oops", david))
+            lambda: svc.adjust(checking.account_id, 5000, "CREDIT", "oops", david))
 
-    svc.adjust(checking.account_id, "50.00", "CREDIT",
+    svc.adjust(checking.account_id, 5000, "CREDIT",
                "Reversing a fee misposted on 2026-09-10", david)
     ok(f"admin credited 50.00, balance now {format_money(checking.balance)}")
     ok(f"audit trail: {svc.audit[-1]}")
@@ -150,16 +153,16 @@ def main():
     svc.set_frozen(erik_acct.account_id, True, "Suspected card compromise, under review", david)
     ok(f"admin froze account #{erik_acct.account_id}")
     attempt("Erik deposits into his own frozen account",
-            lambda: svc.deposit(erik_acct.account_id, "10.00", erik))
+            lambda: svc.deposit(erik_acct.account_id, 1000, erik))
 
     rule("8. Transfer between accounts")
     svc.set_frozen(erik_acct.account_id, False, "Review complete, no fraud found", david)
-    svc.transfer(checking.account_id, erik_acct.account_id, "25.00", aaron)
+    svc.transfer(checking.account_id, erik_acct.account_id, 2500, aaron)
     ok(f"Aaron sent 25.00 to Erik")
     ok(f"  Aaron  {format_money(checking.balance)}")
     ok(f"  Erik   {format_money(erik_acct.balance)}")
     attempt("transfer more than is available",
-            lambda: svc.transfer(checking.account_id, erik_acct.account_id, "99999.00", aaron))
+            lambda: svc.transfer(checking.account_id, erik_acct.account_id, 9999900, aaron))
 
     rule("9. Transaction history")
     rows, total = svc.history(checking.account_id, aaron, page=1, page_size=5)
@@ -214,12 +217,15 @@ def api_section(svc, aaron, david, checking, erik_acct):
     call("his own account", "GET", f"/api/accounts/{checking.account_id}",
          actor=aaron, expect=200)
     call("deposit 10.00", "POST", f"/api/accounts/{checking.account_id}/deposit",
-         {"amount": "10.00"}, aaron, expect=201)
-    call("amount as a JSON number, not a string", "POST",
+         {"amount": 1000}, aaron, expect=201)
+    call("amount as a fractional JSON number", "POST",
          f"/api/accounts/{checking.account_id}/deposit", {"amount": 10.50}, aaron,
          expect=400)
+    call('amount as a "10.50" string', "POST",
+         f"/api/accounts/{checking.account_id}/deposit", {"amount": "10.50"}, aaron,
+         expect=400)
     call("withdraw more than he has", "POST",
-         f"/api/accounts/{checking.account_id}/withdraw", {"amount": "999999.00"},
+         f"/api/accounts/{checking.account_id}/withdraw", {"amount": 99999900},
          aaron, expect=409)
     call("ERIK'S account, by guessing the id", "GET",
          f"/api/accounts/{erik_acct.account_id}", actor=aaron, expect=404)
@@ -242,7 +248,9 @@ def _summarise(payload: dict) -> str:
     """One short line about a successful response, for the demo output."""
     if "account" in payload:
         account = payload["account"]
-        return f"balance {account['balance']}, {account['accountType']}, {account['status']}"
+        # The API sends cents; format for the human reading the demo output.
+        return (f"balance {format_money(account['balance'])}, "
+                f"{account['accountType']}, {account['status']}")
     if "users" in payload:
         return f"{len(payload['users'])} users"
     return ""

@@ -86,7 +86,7 @@ EXAMPLES = {
         "The brief's POST /api/accounts. The owner is the authenticated user; "
         "`userId` is honoured only for an admin opening an account on someone "
         "else's behalf.",
-        {"accountType": "SAVINGS", "openingBalance": "250.00"}),
+        {"accountType": "SAVINGS", "openingBalance": 25000}),
 
     ("GET", "/api/accounts"): (
         "List my accounts",
@@ -94,19 +94,21 @@ EXAMPLES = {
 
     ("GET", "/api/accounts/{id}"): (
         "Get account details",
-        "The brief's GET /api/accounts/{id}. Balance comes back as a STRING, not "
-        "a JSON number - a bare number becomes a float in the browser.", None),
+        "The brief's GET /api/accounts/{id}. Every money field comes back as an "
+        "INTEGER NUMBER OF CENTS: a balance of 123456 means 1,234.56. JSON "
+        "integers are exact, so nothing is lost in the browser the way a "
+        "fractional number would be.", None),
 
     ("POST", "/api/accounts/{id}/deposit"): (
         "Deposit",
         "The brief's deposit endpoint. `clientTxnId` is optional and is the "
         "idempotency guard: send the same one twice and the second is refused.",
-        {"amount": "100.00", "clientTxnId": "postman-deposit-0001"}),
+        {"amount": 10000, "clientTxnId": "postman-deposit-0001"}),
 
     ("POST", "/api/accounts/{id}/withdraw"): (
         "Withdraw",
         "The brief's withdraw endpoint.",
-        {"amount": "25.00"}),
+        {"amount": 2500}),
 
     ("GET", "/api/accounts/{id}/transactions"): (
         "Transaction history",
@@ -116,7 +118,7 @@ EXAMPLES = {
     ("POST", "/api/transfers"): (
         "Transfer between accounts",
         "Bonus feature from brief section 9. Both legs happen or neither does.",
-        {"fromAccountId": 2, "toAccountId": 1, "amount": "50.00"}),
+        {"fromAccountId": 2, "toAccountId": 1, "amount": 5000}),
 
     ("GET", "/api/admin/users"): (
         "Admin: list users", "Requires the ADMIN role. 403 otherwise.", None),
@@ -132,7 +134,7 @@ EXAMPLES = {
         "The ONLY way an admin may change a balance. There is deliberately no "
         "set-balance endpoint: an adjustment posts a normal ledger entry, so "
         "balance == sum(ledger) still holds afterwards.",
-        {"amount": "50.00", "direction": "CREDIT",
+        {"amount": 5000, "direction": "CREDIT",
          "reason": "Reversing a fee misposted on 2026-09-10"}),
     ("GET", "/api/admin/audit"): (
         "Admin: audit log", "Who did what, to which account, and why.", None),
@@ -156,29 +158,32 @@ EXTRA_REQUESTS = [
      "cannot be used to discover which addresses are registered."),
 
     ("Failure cases", "Overdraft is refused", "POST",
-     "/api/accounts/{{lowBalanceAccountId}}/withdraw", {"amount": "12.51"},
+     "/api/accounts/{{lowBalanceAccountId}}/withdraw", {"amount": 1251},
      "Account 6 holds 12.50. Expect 409 and an unchanged balance."),
 
     ("Failure cases", "Negative amount is refused", "POST",
-     "/api/accounts/{{accountId}}/deposit", {"amount": "-50.00"},
+     "/api/accounts/{{accountId}}/deposit", {"amount": -5000},
      "Expect 400, rejected by validation before anything is written."),
 
-    ("Failure cases", "Three decimal places are refused", "POST",
-     "/api/accounts/{{accountId}}/deposit", {"amount": "10.555"},
-     "Expect 400. Money has two decimal places."),
+    ("Failure cases", "A dollars-and-cents string is refused", "POST",
+     "/api/accounts/{{accountId}}/deposit", {"amount": "10.50"},
+     "Expect 400. This API takes a whole number of cents, so 10.50 dollars is "
+     "sent as 1050. A quoted \"10.50\" is what the previous version of this API "
+     "accepted, and it is refused rather than guessed at."),
 
-    ("Failure cases", "A JSON number amount is refused", "POST",
+    ("Failure cases", "A fractional JSON number is refused", "POST",
      "/api/accounts/{{accountId}}/deposit", {"amount": 10.50},
-     "Expect 400. `10.50` unquoted parses to a float, which has already lost "
-     "precision by the time the server sees it. Send amounts as strings."),
+     "Expect 400. `10.50` parses to a float, which has already lost precision "
+     "by the time the server sees it, and is ambiguous besides: in an API that "
+     "speaks cents it could mean ten and a half cents. Send 1050."),
 
     ("Failure cases", "Frozen account refuses a deposit", "POST",
-     "/api/accounts/{{frozenAccountId}}/deposit", {"amount": "100.00"},
+     "/api/accounts/{{frozenAccountId}}/deposit", {"amount": 10000},
      "Account 10 is seeded FROZEN. Expect 409."),
 
     ("Failure cases", "Duplicate clientTxnId is refused", "POST",
      "/api/accounts/{{accountId}}/deposit",
-     {"amount": "100.00", "clientTxnId": "postman-deposit-0001"},
+     {"amount": 10000, "clientTxnId": "postman-deposit-0001"},
      "Run the Deposit request first, then this. Expect 409: the double-clicked "
      "submit button does not deposit twice."),
 

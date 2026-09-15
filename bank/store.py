@@ -8,12 +8,10 @@ the week, this file is the only one that gets rewritten and the business rules i
 services.py do not change at all. That is the same reason the class exists as a
 seam rather than the services just using globals.
 """
-from decimal import Decimal
 import itertools
 
 from .errors import AccountNotFound, EmailAlreadyUsed, UserNotFound
 from .models import Account, Transaction, User
-from .money import ZERO
 
 
 class BankStore:
@@ -116,9 +114,13 @@ class BankStore:
             rows = [t for t in rows if t.txn_type == txn_type]
         return sorted(rows, key=lambda t: t.txn_id, reverse=True)
 
-    def ledger_sum(self, account_id: int) -> Decimal:
-        """Reconciliation. Must equal the account's stored balance."""
-        total = ZERO
+    def ledger_sum(self, account_id: int) -> int:
+        """Reconciliation, in cents. Must equal the account's stored balance.
+
+        Integer addition, so this is exact and `==` against the stored balance
+        needs no tolerance.
+        """
+        total = 0
         for txn in self._transactions:
             if txn.account_id == account_id:
                 total += txn.signed_amount

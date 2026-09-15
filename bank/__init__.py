@@ -7,11 +7,11 @@ what makes the arrow in the brief's architecture diagram true rather than
 aspirational:
 
     api.py          Controller. HTTP in, JSON out. No business rules.
-    serializers.py  Domain objects -> JSON dicts. Money goes out as strings.
+    serializers.py  Domain objects -> JSON dicts. Money goes out as integer cents.
     services.py     Every business rule. No HTTP, no SQL, no framework.
     models.py       User, Account, Transaction as plain classes.
     store.py        Repository. In-memory today, a database later.
-    money.py        Decimal handling and amount validation. Read this first.
+    money.py        Cents as ints, and amount validation. Read this first.
     security.py     Password hashing and signed session tokens.
     errors.py       Domain exceptions. Not HTTP status codes.
     seed.py         The demo roster, replayed through the real service methods.
@@ -23,8 +23,8 @@ Used as a library:
     store = BankStore()
     svc = BankService(store)
     alice = svc.register_user("Alice", "alice@example.com", password="hunter2!!")
-    acct = svc.open_account(alice, "CHECKING", "100.00")
-    svc.deposit(acct.account_id, "25.50", alice)
+    acct = svc.open_account(alice, "CHECKING", 10000)   # amounts are cents:
+    svc.deposit(acct.account_id, 2550, alice)           # 100.00, then 25.50
 
 Used as an API:
 
@@ -40,7 +40,7 @@ from .models import (
     TRANSFER_OUT, WITHDRAWAL, Account, CheckingAccount, SavingsAccount,
     Transaction, User, make_account,
 )
-from .money import format_money, parse_amount, to_money
+from .money import format_money, parse_amount, to_cents
 from .security import hash_password, issue_token, read_token, verify_password
 from .serializers import account_json, transaction_json, user_json
 from .services import BankService
@@ -55,7 +55,7 @@ __all__ = [
     "User", "Account", "CheckingAccount", "SavingsAccount", "Transaction",
     "make_account",
     # money
-    "to_money", "parse_amount", "format_money",
+    "to_cents", "parse_amount", "format_money",
     # security
     "hash_password", "verify_password", "issue_token", "read_token",
     # serialization

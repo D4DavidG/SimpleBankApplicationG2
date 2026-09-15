@@ -93,8 +93,10 @@ ERROR_STATUS = [
     # ValueError covers the service layer's own argument checks - a missing name,
     # an unknown account type, an admin reason that is too short.
     (ValueError, 400),
-    # money.to_money raises TypeError on a float. That is a client mistake, not a
-    # server fault, so it is a 400 and not a 500.
+    # money.to_cents raises TypeError on anything that is not an int number of
+    # cents. That is a client mistake, not a server fault, so it is a 400 and not
+    # a 500. (parse_amount catches most of these first and raises InvalidAmount;
+    # this row covers the paths that reach to_cents directly.)
     (TypeError, 400),
 ]
 
@@ -420,7 +422,7 @@ class BankAPI:
         account = self.service.open_account(
             owner=owner,
             account_type=request.require("accountType"),
-            opening_balance=request.optional("openingBalance", "0.00"),
+            opening_balance=request.optional("openingBalance", 0),
         )
         return 201, {"account": account_json(account, owner)}
 
@@ -595,7 +597,7 @@ class BankAPI:
             "balanced": not broken,
             "checked": len(self.service.store.all_accounts()),
             "discrepancies": [
-                {"accountId": i, "balance": f"{b:.2f}", "ledgerSum": f"{s:.2f}"}
+                {"accountId": i, "balance": b, "ledgerSum": s}  # cents
                 for i, b, s in broken
             ],
         }

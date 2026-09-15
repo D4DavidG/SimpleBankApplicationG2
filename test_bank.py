@@ -5,14 +5,16 @@
 No pytest, no database, no server. Every test is a function call, which is the
 payoff for keeping the rules in services.py free of framework imports.
 """
-from decimal import Decimal
 import unittest
 
 from bank import (
     AccountNotActive, AccountNotFound, BankService, BankStore,
     DuplicateTransaction, InsufficientFunds, InvalidAmount, NotAuthorized,
-    SavingsAccount, format_money, parse_amount, to_money,
+    SavingsAccount, format_money, parse_amount, to_cents,
 )
+
+# Every amount in this file is in cents. Where a figure is not obvious at a
+# glance the dollar value is in a trailing comment.
 
 
 class BankTestCase(unittest.TestCase):
@@ -25,9 +27,9 @@ class BankTestCase(unittest.TestCase):
         self.erik = self.svc.register_user("Erik Mayes", "erik.mayes@example.com")
         self.david = self.svc.register_user("David Gusmao", "david.gusmao@example.com",
                                             role="ADMIN")
-        self.a_checking = self.svc.open_account(self.aaron, "CHECKING", "12.50")
-        self.a_savings = self.svc.open_account(self.aaron, "SAVINGS", "500.00")
-        self.e_checking = self.svc.open_account(self.erik, "CHECKING", "84210.75")
+        self.a_checking = self.svc.open_account(self.aaron, "CHECKING", 1250)     # 12.50
+        self.a_savings = self.svc.open_account(self.aaron, "SAVINGS", 50000)      # 500.00
+        self.e_checking = self.svc.open_account(self.erik, "CHECKING", 8421075)   # 84,210.75
 
     def tearDown(self):
         """Every test ends with the ledger reconciling. If a rule ever changes a
@@ -41,51 +43,77 @@ class BankTestCase(unittest.TestCase):
 
 class TestMoney(unittest.TestCase):
     def test_float_is_rejected_not_rounded(self):
+        """A float has already lost precision by the time it arrives, so it is
+        refused rather than converted."""
         with self.assertRaises(TypeError):
-            to_money(12.50)
+            to_cents(12.50)
         with self.assertRaises(InvalidAmount):
             parse_amount(12.50)
 
-    def test_decimal_arithmetic_is_exact_where_float_is_not(self):
+    def test_a_bool_is_not_worth_one_cent(self):
+        """`bool` is a subclass of `int` in Python, so `True == 1`. Without an
+        explicit check, `{"amount": true}` would be accepted as a one-cent
+        deposit instead of refused as nonsense."""
+        with self.assertRaises(TypeError):
+            to_cents(True)
+        with self.assertRaises(InvalidAmount):
+            parse_amount(True)
+
+    def test_integer_arithmetic_is_exact_where_float_is_not(self):
         """A real ledger from the seed file, not a contrived example.
 
-        Account 20: one deposit of 115.36, withdrawals of 39.80 and 3.46. Exactly
-        72.10 in Decimal, and 72.10000000000001 in float.
+        Account 20: one deposit of 115.36, withdrawals of 39.80 and 3.46. In
+        cents that is 11536 - 3980 - 346, which is exactly 7210 because integer
+        arithmetic has no other option. The same sequence in float gives
+        72.10000000000001.
 
-        The first version of this test used 1000.10 + 234.20 + 0.30 - 0.04, which
-        happens to come out exact in float with that grouping. Float error depends
-        on the specific values and the order they are combined, which is the real
-        lesson: you cannot tell by looking whether a given sequence will drift.
+        An earlier version of this test used 1000.10 + 234.20 + 0.30 - 0.04,
+        which happens to come out exact in float with that grouping. Float error
+        depends on the specific values and the order they are combined, which is
+        the real lesson: you cannot tell by looking whether a sequence will
+        drift. Integers remove the question rather than answering it.
         """
-        deposits = ["115.36"]
-        withdrawals = ["39.80", "3.46"]
+        exact = 11536 - 3980 - 346
+        self.assertEqual(exact, 7210)
+        self.assertEqual(format_money(exact), "72.10")
 
-        exact = sum((Decimal(a) for a in deposits), Decimal("0"))
-        for a in withdrawals:
-            exact -= Decimal(a)
-
-        drifting = sum(float(a) for a in deposits)
-        for a in withdrawals:
-            drifting -= float(a)
-
-        self.assertEqual(exact, Decimal("72.10"))
+        drifting = 115.36 - 39.80 - 3.46
         self.assertNotEqual(drifting, 72.10)
         self.assertEqual(repr(drifting), "72.10000000000001")
 
     def test_bad_amounts_are_rejected(self):
-        for bad in ["-5.00", "0", "0.00", "10.555", "abc", "", "1e5", "5,00", " ", "-0.01"]:
-            with self.subTest(amount=bad):
+        """Zero, negatives, and anything that is not a plain int.
+
+        The strings are here because they are what the old dollars-and-cents API
+        accepted. A client that was not updated sends "25.00" and must be told
+        no, rather than have it silently coerced - "25.00" as cents would be a
+        hundredth of what the caller meant.
+        """
+        bad = [0, -1, -500,                      # not positive
+               "25.00", "2500", "abc", "", " ",  # strings of any shape
+               12.50, 0.01, 2500.0,              # floats, even whole ones
+               None, True, False, [2500]]
+        for amount in bad:
+            with self.subTest(amount=amount):
                 with self.assertRaises(InvalidAmount):
-                    parse_amount(bad)
+                    parse_amount(amount)
 
     def test_good_amounts_are_accepted(self):
-        self.assertEqual(parse_amount("0.01"), Decimal("0.01"))
-        self.assertEqual(parse_amount("1234.56"), Decimal("1234.56"))
-        self.assertEqual(parse_amount(Decimal("99.90")), Decimal("99.90"))
+        self.assertEqual(parse_amount(1), 1)                  # one cent
+        self.assertEqual(parse_amount(123456), 123456)        # 1,234.56
+        self.assertEqual(parse_amount(100_000_000), 100_000_000)  # the ceiling
+
+    def test_the_per_transaction_ceiling_is_enforced(self):
+        with self.assertRaises(InvalidAmount):
+            parse_amount(100_000_001)
 
     def test_display_formatting(self):
-        self.assertEqual(format_money(Decimal("84210.75")), "84,210.75")
-        self.assertEqual(format_money(Decimal("0.01")), "0.01")
+        self.assertEqual(format_money(8421075), "84,210.75")
+        self.assertEqual(format_money(1), "0.01")
+        self.assertEqual(format_money(0), "0.00")
+        # divmod on a negative rounds towards minus infinity, so -12345 would
+        # print as -124.55 if the sign were not taken off first.
+        self.assertEqual(format_money(-12345), "-123.45")
 
 
 # -------------------------------------------------------------- business rules
@@ -93,38 +121,38 @@ class TestMoney(unittest.TestCase):
 class TestDeposit(BankTestCase):
     def test_deposit_increases_balance_and_writes_one_entry(self):
         before = len(self.store.transactions_for_account(self.a_checking.account_id))
-        self.svc.deposit(self.a_checking.account_id, "100.00", self.aaron)
-        self.assertEqual(self.a_checking.balance, Decimal("112.50"))
+        self.svc.deposit(self.a_checking.account_id, 10000, self.aaron)
+        self.assertEqual(self.a_checking.balance, 11250)
         after = len(self.store.transactions_for_account(self.a_checking.account_id))
         self.assertEqual(after - before, 1)
 
     def test_deposit_must_be_positive(self):
         with self.assertRaises(InvalidAmount):
-            self.svc.deposit(self.a_checking.account_id, "-10.00", self.aaron)
-        self.assertEqual(self.a_checking.balance, Decimal("12.50"))
+            self.svc.deposit(self.a_checking.account_id, -1000, self.aaron)
+        self.assertEqual(self.a_checking.balance, 1250)
 
     def test_precision_survives_a_sequence_of_deposits(self):
         acct = self.svc.open_account(self.aaron, "CHECKING")
-        for amount in ["1000.10", "234.20", "0.30"]:
+        for amount in [100010, 23420, 30]:
             self.svc.deposit(acct.account_id, amount, self.aaron)
-        self.svc.withdraw(acct.account_id, "0.04", self.aaron)
-        self.assertEqual(acct.balance, Decimal("1234.56"))
+        self.svc.withdraw(acct.account_id, 4, self.aaron)
+        self.assertEqual(acct.balance, 123456)
 
 
 class TestWithdraw(BankTestCase):
     def test_cannot_withdraw_more_than_balance(self):
         with self.assertRaises(InsufficientFunds):
-            self.svc.withdraw(self.a_checking.account_id, "12.51", self.aaron)
-        self.assertEqual(self.a_checking.balance, Decimal("12.50"))
+            self.svc.withdraw(self.a_checking.account_id, 1251, self.aaron)
+        self.assertEqual(self.a_checking.balance, 1250)
 
     def test_withdrawing_the_exact_balance_succeeds(self):
-        self.svc.withdraw(self.a_checking.account_id, "12.50", self.aaron)
-        self.assertEqual(self.a_checking.balance, Decimal("0.00"))
+        self.svc.withdraw(self.a_checking.account_id, 1250, self.aaron)
+        self.assertEqual(self.a_checking.balance, 0)
 
     def test_a_failed_withdrawal_writes_no_ledger_entry(self):
         before = len(self.store.transactions_for_account(self.a_checking.account_id))
         with self.assertRaises(InsufficientFunds):
-            self.svc.withdraw(self.a_checking.account_id, "999.00", self.aaron)
+            self.svc.withdraw(self.a_checking.account_id, 99900, self.aaron)
         after = len(self.store.transactions_for_account(self.a_checking.account_id))
         self.assertEqual(before, after)
 
@@ -133,8 +161,8 @@ class TestWithdraw(BankTestCase):
 
         Every number here is derived from `SavingsAccount.MINIMUM` rather than
         written out, so this test states the rule instead of one instance of it.
-        The minimum is 0.00 today, which makes the withdrawable amount the whole
-        balance; when it was 25.00 the same three assertions held. The service
+        The minimum is 0 today, which makes the withdrawable amount the whole
+        balance; when it was 2500 the same three assertions held. The service
         layer never checks the account type to work any of this out.
         """
         balance = self.a_savings.balance
@@ -142,13 +170,12 @@ class TestWithdraw(BankTestCase):
         self.assertEqual(self.a_savings.available_for_withdrawal(), available)
 
         with self.assertRaises(InsufficientFunds):
-            self.svc.withdraw(self.a_savings.account_id,
-                              str(available + Decimal("0.01")), self.aaron)
-        self.svc.withdraw(self.a_savings.account_id, str(available), self.aaron)
+            self.svc.withdraw(self.a_savings.account_id, available + 1, self.aaron)
+        self.svc.withdraw(self.a_savings.account_id, available, self.aaron)
         self.assertEqual(self.a_savings.balance, SavingsAccount.MINIMUM)
 
     def test_checking_has_no_minimum(self):
-        self.assertEqual(self.a_checking.available_for_withdrawal(), Decimal("12.50"))
+        self.assertEqual(self.a_checking.available_for_withdrawal(), 1250)
 
 
 class TestFrozenAccounts(BankTestCase):
@@ -156,30 +183,30 @@ class TestFrozenAccounts(BankTestCase):
         self.svc.set_frozen(self.e_checking.account_id, True,
                             "Suspected card compromise reported 2026-09-15", self.david)
         with self.assertRaises(AccountNotActive):
-            self.svc.deposit(self.e_checking.account_id, "10.00", self.erik)
+            self.svc.deposit(self.e_checking.account_id, 1000, self.erik)
         with self.assertRaises(AccountNotActive):
-            self.svc.withdraw(self.e_checking.account_id, "10.00", self.erik)
+            self.svc.withdraw(self.e_checking.account_id, 1000, self.erik)
 
     def test_unfreezing_restores_movement(self):
         acct_id = self.e_checking.account_id
         self.svc.set_frozen(acct_id, True, "Suspected card compromise, pending review", self.david)
         self.svc.set_frozen(acct_id, False, "Review complete, no fraud found", self.david)
-        self.svc.deposit(acct_id, "10.00", self.erik)
-        self.assertEqual(self.e_checking.balance, Decimal("84220.75"))
+        self.svc.deposit(acct_id, 1000, self.erik)
+        self.assertEqual(self.e_checking.balance, 8422075)
 
 
 class TestIdempotency(BankTestCase):
     def test_the_same_submission_is_not_applied_twice(self):
-        body = ("100.00", self.aaron, "submit-attempt-0001")
+        body = (10000, self.aaron, "submit-attempt-0001")
         self.svc.deposit(self.a_checking.account_id, *body)
         with self.assertRaises(DuplicateTransaction):
             self.svc.deposit(self.a_checking.account_id, *body)
-        self.assertEqual(self.a_checking.balance, Decimal("112.50"))
+        self.assertEqual(self.a_checking.balance, 11250)
 
     def test_different_ids_both_apply(self):
-        self.svc.deposit(self.a_checking.account_id, "10.00", self.aaron, "a")
-        self.svc.deposit(self.a_checking.account_id, "10.00", self.aaron, "b")
-        self.assertEqual(self.a_checking.balance, Decimal("32.50"))
+        self.svc.deposit(self.a_checking.account_id, 1000, self.aaron, "a")
+        self.svc.deposit(self.a_checking.account_id, 1000, self.aaron, "b")
+        self.assertEqual(self.a_checking.balance, 3250)
 
 
 # --------------------------------------------------------------- authorization
@@ -207,10 +234,10 @@ class TestOwnership(BankTestCase):
 
     def test_a_user_cannot_move_another_users_money(self):
         with self.assertRaises(AccountNotFound):
-            self.svc.withdraw(self.e_checking.account_id, "1.00", self.aaron)
+            self.svc.withdraw(self.e_checking.account_id, 100, self.aaron)
         with self.assertRaises(AccountNotFound):
-            self.svc.deposit(self.e_checking.account_id, "1.00", self.aaron)
-        self.assertEqual(self.e_checking.balance, Decimal("84210.75"))
+            self.svc.deposit(self.e_checking.account_id, 100, self.aaron)
+        self.assertEqual(self.e_checking.balance, 8421075)
 
     def test_a_user_cannot_read_another_users_history(self):
         with self.assertRaises(AccountNotFound):
@@ -218,7 +245,7 @@ class TestOwnership(BankTestCase):
 
     def test_admin_may_read_any_account(self):
         acct = self.svc.get_account_for(self.e_checking.account_id, self.david)
-        self.assertEqual(acct.balance, Decimal("84210.75"))
+        self.assertEqual(acct.balance, 8421075)
 
 
 class TestAdmin(BankTestCase):
@@ -228,7 +255,7 @@ class TestAdmin(BankTestCase):
             lambda: self.svc.all_accounts(self.aaron),
             lambda: self.svc.set_frozen(self.a_checking.account_id, True,
                                         "trying to freeze my own account", self.aaron),
-            lambda: self.svc.adjust(self.a_checking.account_id, "1000.00", "CREDIT",
+            lambda: self.svc.adjust(self.a_checking.account_id, 100000, "CREDIT",
                                     "giving myself a thousand dollars", self.aaron),
         ):
             with self.subTest(call=call):
@@ -236,9 +263,9 @@ class TestAdmin(BankTestCase):
                     call()
 
     def test_adjustment_writes_a_ledger_entry_and_an_audit_row(self):
-        self.svc.adjust(self.a_checking.account_id, "50.00", "CREDIT",
+        self.svc.adjust(self.a_checking.account_id, 5000, "CREDIT",
                         "Reversing a fee misposted on 2026-09-10", self.david)
-        self.assertEqual(self.a_checking.balance, Decimal("62.50"))
+        self.assertEqual(self.a_checking.balance, 6250)
         self.assertEqual(len(self.svc.audit), 1)
         actor, action, account_id, reason = self.svc.audit[0]
         self.assertEqual(actor, self.david.user_id)
@@ -247,13 +274,13 @@ class TestAdmin(BankTestCase):
 
     def test_adjustment_requires_a_written_reason(self):
         with self.assertRaises(ValueError):
-            self.svc.adjust(self.a_checking.account_id, "50.00", "CREDIT", "oops", self.david)
+            self.svc.adjust(self.a_checking.account_id, 5000, "CREDIT", "oops", self.david)
 
     def test_adjustment_cannot_take_a_balance_negative(self):
         with self.assertRaises(InsufficientFunds):
-            self.svc.adjust(self.a_checking.account_id, "500.00", "DEBIT",
+            self.svc.adjust(self.a_checking.account_id, 50000, "DEBIT",
                             "Attempting to claw back more than is present", self.david)
-        self.assertEqual(self.a_checking.balance, Decimal("12.50"))
+        self.assertEqual(self.a_checking.balance, 1250)
 
     def test_there_is_no_way_for_an_admin_to_set_a_balance_directly(self):
         """If someone adds a set_balance method, this test should fail and the
@@ -263,7 +290,7 @@ class TestAdmin(BankTestCase):
 
     def test_balance_has_no_public_setter(self):
         with self.assertRaises(AttributeError):
-            self.a_checking.balance = Decimal("1000000.00")
+            self.a_checking.balance = 100000000
 
 
 # -------------------------------------------------------------------- transfer
@@ -271,21 +298,21 @@ class TestAdmin(BankTestCase):
 class TestTransfer(BankTestCase):
     def test_transfer_moves_money_and_writes_both_legs(self):
         self.svc.transfer(self.a_savings.account_id, self.e_checking.account_id,
-                          "100.00", self.aaron)
-        self.assertEqual(self.a_savings.balance, Decimal("400.00"))
-        self.assertEqual(self.e_checking.balance, Decimal("84310.75"))
+                          10000, self.aaron)
+        self.assertEqual(self.a_savings.balance, 40000)
+        self.assertEqual(self.e_checking.balance, 8431075)
 
     def test_cannot_transfer_from_an_account_you_do_not_own(self):
         with self.assertRaises(AccountNotFound):
             self.svc.transfer(self.e_checking.account_id, self.a_checking.account_id,
-                              "100.00", self.aaron)
+                              10000, self.aaron)
 
     def test_a_failed_transfer_moves_nothing(self):
         with self.assertRaises(InsufficientFunds):
             self.svc.transfer(self.a_checking.account_id, self.e_checking.account_id,
-                              "9999.00", self.aaron)
-        self.assertEqual(self.a_checking.balance, Decimal("12.50"))
-        self.assertEqual(self.e_checking.balance, Decimal("84210.75"))
+                              999900, self.aaron)
+        self.assertEqual(self.a_checking.balance, 1250)
+        self.assertEqual(self.e_checking.balance, 8421075)
 
 
 # ------------------------------------------------------------------ invariants
@@ -296,13 +323,13 @@ class TestInvariants(BankTestCase):
         from the moment it exists."""
         stored, ledger = self.svc.reconcile(self.a_checking.account_id)
         self.assertEqual(stored, ledger)
-        self.assertEqual(stored, Decimal("12.50"))
+        self.assertEqual(stored, 1250)
 
     def test_reconciliation_holds_across_a_long_sequence(self):
         acct = self.a_savings.account_id
-        for amount in ["10.01", "99.99", "0.01", "1234.56"]:
+        for amount in [1001, 9999, 1, 123456]:
             self.svc.deposit(acct, amount, self.aaron)
-        for amount in ["5.55", "0.01", "100.00"]:
+        for amount in [555, 1, 10000]:
             self.svc.withdraw(acct, amount, self.aaron)
         stored, ledger = self.svc.reconcile(acct)
         self.assertEqual(stored, ledger)
@@ -310,7 +337,7 @@ class TestInvariants(BankTestCase):
     def test_history_is_paginated(self):
         acct = self.a_savings.account_id
         for _ in range(25):
-            self.svc.deposit(acct, "1.00", self.aaron)
+            self.svc.deposit(acct, 100, self.aaron)
         rows, total = self.svc.history(acct, self.aaron, page=1, page_size=10)
         self.assertEqual(len(rows), 10)
         self.assertEqual(total, 26)  # 25 deposits plus the opening entry

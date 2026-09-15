@@ -33,10 +33,9 @@ Three object-oriented decisions worth defending in review:
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal
 
 from .errors import InsufficientFunds
-from .money import ZERO, format_money, to_money
+from .money import format_money, to_cents
 
 # Ledger entry types. A transaction stores a positive amount and takes its
 # direction from the type, so this pair is the single source of truth for sign.
@@ -106,13 +105,13 @@ class Transaction:
     txn_id: int
     account_id: int
     txn_type: str
-    amount: Decimal
+    amount: int          # cents, always positive; the sign lives in txn_type
     client_txn_id: str | None = None
     created_at: datetime = field(default_factory=_now)
 
     @property
-    def signed_amount(self) -> Decimal:
-        """What this entry contributes to the balance."""
+    def signed_amount(self) -> int:
+        """What this entry contributes to the balance, in cents."""
         return self.amount if self.txn_type in CREDIT_TYPES else -self.amount
 
     def __str__(self) -> str:
@@ -135,26 +134,26 @@ class Account:
     """
 
     def __init__(self, user_id: int, account_id: int | None = None,
-                 opening_balance: Decimal | str = ZERO, status: str = ACTIVE):
+                 opening_balance: int = 0, status: str = ACTIVE):
         self.account_id = account_id
         self.user_id = user_id
-        self._balance = to_money(opening_balance)
+        self._balance = to_cents(opening_balance)
         self.status = status
         self.created_at = _now()
 
     # ---- encapsulation ----
 
     @property
-    def balance(self) -> Decimal:
-        """Read-only on purpose. See the module docstring."""
+    def balance(self) -> int:
+        """Cents. Read-only on purpose - see the module docstring."""
         return self._balance
 
-    def _apply(self, delta: Decimal) -> None:
+    def _apply(self, delta: int) -> None:
         """Internal. Only the service layer calls this, and only with a matching
         ledger entry. The leading underscore is the signal that reaching for this
         from ordinary code means something has gone wrong."""
-        new_balance = self._balance + to_money(delta)
-        if new_balance < ZERO:
+        new_balance = self._balance + to_cents(delta)
+        if new_balance < 0:
             raise InsufficientFunds("operation would take the balance below zero")
         self._balance = new_balance
 
@@ -165,15 +164,16 @@ class Account:
         raise NotImplementedError
 
     @property
-    def minimum_balance(self) -> Decimal:
-        return ZERO
+    def minimum_balance(self) -> int:
+        return 0
 
-    def available_for_withdrawal(self) -> Decimal:
-        """How much may actually leave. Subclasses change this, not the caller."""
+    def available_for_withdrawal(self) -> int:
+        """How much may actually leave, in cents. Subclasses change this, not the
+        caller."""
         return self._balance - self.minimum_balance
 
-    def can_withdraw(self, amount: Decimal) -> bool:
-        return self.is_active and to_money(amount) <= self.available_for_withdrawal()
+    def can_withdraw(self, amount: int) -> bool:
+        return self.is_active and to_cents(amount) <= self.available_for_withdrawal()
 
     @property
     def is_active(self) -> bool:
@@ -205,14 +205,14 @@ class SavingsAccount(Account):
     route or test has to learn about it.
     """
 
-    MINIMUM = Decimal("0.00")
+    MINIMUM = 0  # cents
 
     @property
     def account_type(self) -> str:
         return "SAVINGS"
 
     @property
-    def minimum_balance(self) -> Decimal:
+    def minimum_balance(self) -> int:
         return self.MINIMUM
 
 

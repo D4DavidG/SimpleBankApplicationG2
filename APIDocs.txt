@@ -64,7 +64,7 @@ Open Account
     INPUT
         cookie
         account_type ("CHECKING" or "SAVINGS")
-        opening_balance (optional, defaults to "0.00", string amount)
+        opening_balance (optional, defaults to 0, integer cents)
         user_id (optional, admin only)
     OUTPUT
         AccountView
@@ -108,7 +108,7 @@ Deposit
     INPUT
         cookie
         account_id (in the path)
-        amount (string, e.g. "125.00")
+        amount (integer cents, e.g. 12500 for 125.00)
         client_txn_id (optional - see IDEMPOTENCY below)
     OUTPUT
         {
@@ -118,8 +118,9 @@ Deposit
     FAILURE STATES:
         invalid cookie
         you do not own the account or the account does not exist
-        amount is zero, negative, has more than 2 decimals, or is not a number
-        amount is over the per-transaction limit of 1,000,000.00
+        amount is zero, negative, or is not a whole number of cents given as
+            a JSON integer (a float or a string is refused, not converted)
+        amount is over the per-transaction limit of 100000000 (1,000,000.00)
         the account is frozen
         this client_txn_id has already been used
     NOTES:
@@ -135,7 +136,7 @@ Withdraw
     INPUT
         cookie
         account_id (in the path)
-        amount (string)
+        amount (integer cents)
         client_txn_id (optional)
     OUTPUT
         {
@@ -168,7 +169,7 @@ Transfer
         cookie
         from_account_id
         to_account_id
-        amount (string)
+        amount (integer cents)
         client_txn_id (optional)
     OUTPUT
         {
@@ -256,7 +257,7 @@ Adjust Balance
     INPUT
         cookie
         account_id (in the path)
-        amount (string, always positive)
+        amount (integer cents, always positive)
         direction ("CREDIT" or "DEBIT")
         reason (required, at least 10 characters)
     OUTPUT
@@ -324,17 +325,34 @@ Conventions
         every request rather than trusted from the token, so an admin demoted
         five minutes ago is not still an admin for the rest of the hour.
 
-    MONEY IS A STRING
-        Every monetary field, in and out, is a quoted string: "1234.56". Never
-        a JSON number. JSON has one numeric type and a browser turns it into a
-        float the moment JSON.parse runs, which loses the exact cents the rest
-        of the system is careful about. No grouping and no currency symbol -
-        "1234.56", not "1,234.56". The comma is presentation and belongs in the
-        browser.
+    MONEY IS AN INTEGER NUMBER OF CENTS
+        Every monetary field, in and out, is a whole number of cents sent as a
+        JSON integer. 1,234.56 is 123456. Twenty-five dollars is 2500. One cent
+        is 1.
+
+        Not "1234.56" and not 1234.56. A fractional JSON number becomes a float
+        the moment JSON.parse runs, which loses the exact cents the rest of the
+        system is careful about; an integer is exact up to 2^53, which is about
+        ninety trillion dollars in cents. The quoted-string form was the earlier
+        design and is no longer accepted - see AMOUNTS.
+
+        The frontend divides by 100 to display and never to calculate, and adds
+        grouping and a currency symbol at that point. "1,234.56" is the display
+        form and belongs in the browser.
 
     AMOUNTS
-        Positive, at most 2 decimal places, at most 1,000,000.00 per
-        transaction. Zero is not a valid amount.
+        Positive whole cents, at most 100000000 (1,000,000.00) per transaction.
+        Zero is not a valid amount.
+
+        Three forms are refused with a 400 rather than interpreted:
+
+            {"amount": 25.00}    a fractional number - already a float, and
+                                 ambiguous: 25 cents or 25 dollars?
+            {"amount": "2500"}   a string, even one holding digits
+            {"amount": "25.00"}  the old dollars-and-cents form
+
+        Guessing at any of these is a hundredfold error in one direction or the
+        other, so none of them is guessed at.
 
     IDEMPOTENCY
         Write endpoints (deposit, withdraw, transfer) accept an optional
@@ -373,14 +391,17 @@ AccountView (as the server actually sends it)
     {
         integer accountId,
         integer userId,
-        string userName,               (only when the owner is to hand)
-        string accountType,            ("CHECKING" or "SAVINGS")
-        string status,                 ("ACTIVE" or "FROZEN")
-        string balance,                ("1234.56")
-        string availableForWithdrawal, (balance minus any minimum)
-        string minimumBalance,         ("0.00" for both types at present)
+        string userName,                (only when the owner is to hand)
+        string accountType,             ("CHECKING" or "SAVINGS")
+        string status,                  ("ACTIVE" or "FROZEN")
+        integer balance,                (cents - 123456 is 1,234.56)
+        integer availableForWithdrawal, (cents - balance minus any minimum)
+        integer minimumBalance,         (cents - 0 for both types at present)
         string createdAt
     }
+    The money fields are cents, matching the "integer money (in cents)" in the
+    sketch above. Divide by 100 to display, never to calculate.
+
     availableForWithdrawal is sent alongside balance because the two are not the
     same idea, even while they hold the same number. No account type keeps a
     minimum today, so they are equal; a client that treated that as permanent and
@@ -405,8 +426,8 @@ TransactionView
         integer txnId,
         integer accountId,
         string type,                   (DEPOSIT, WITHDRAWAL, TRANSFER_IN, TRANSFER_OUT)
-        string amount,                 (always positive - the sign is in type)
-        string signedAmount,           ("-40.00" for a debit)
+        integer amount,                (cents, always positive - sign is in type)
+        integer signedAmount,          (cents - -4000 for a 40.00 debit)
         string direction,              ("CREDIT" or "DEBIT")
         string clientTxnId,            (may be null)
         string createdAt
@@ -438,9 +459,11 @@ AuditEntry
 Discrepancy
     {
         integer accountId,
-        string balance,                (what the account says)
-        string ledgerSum               (what its transactions add up to)
+        integer balance,               (cents - what the account says)
+        integer ledgerSum              (cents - what its transactions add up to)
     }
+    Both are integers, so the comparison behind this list is exact. There is no
+    rounding tolerance and none is needed.
 
 Error
     {

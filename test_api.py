@@ -21,7 +21,6 @@ seed gets one test class of its own.
 import json
 import threading
 import unittest
-from decimal import Decimal
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -65,9 +64,9 @@ class ApiTestCase(unittest.TestCase):
         self.david = self.svc.register_user("David Gusmao", "david@example.com",
                                             role="ADMIN", password_hash=SHARED_HASH)
 
-        self.a_checking = self.svc.open_account(self.aaron, "CHECKING", "100.00")
-        self.a_savings = self.svc.open_account(self.aaron, "SAVINGS", "500.00")
-        self.e_checking = self.svc.open_account(self.erik, "CHECKING", "84210.75")
+        self.a_checking = self.svc.open_account(self.aaron, "CHECKING", 10000)
+        self.a_savings = self.svc.open_account(self.aaron, "SAVINGS", 50000)
+        self.e_checking = self.svc.open_account(self.erik, "CHECKING", 8421075)
 
     def tearDown(self):
         """Same invariant as test_bank.py, asserted after every HTTP call too: no
@@ -243,11 +242,10 @@ class TestOwnershipOverHttp(ApiTestCase):
             with self.subTest(path=path):
                 status, _ = self.post(
                     f"/api/accounts/{self.e_checking.account_id}/{path}",
-                    {"amount": "10.00"}, self.aaron)
+                    {"amount": 1000}, self.aaron)
                 self.assertEqual(status, 404)
         # And nothing moved: the 404 is a refusal, not a silent no-op after a write.
-        from decimal import Decimal
-        self.assertEqual(self.e_checking.balance, Decimal("84210.75"))
+        self.assertEqual(self.e_checking.balance, 8421075)
 
     def test_reading_another_users_history_is_404(self):
         status, _ = self.get(
@@ -258,14 +256,14 @@ class TestOwnershipOverHttp(ApiTestCase):
         status, _ = self.post("/api/transfers", {
             "fromAccountId": self.e_checking.account_id,
             "toAccountId": self.a_checking.account_id,
-            "amount": "1000.00",
+            "amount": 100000,
         }, self.aaron)
         self.assertEqual(status, 404)
 
     def test_an_admin_may_read_any_account(self):
         status, body = self.get(f"/api/accounts/{self.e_checking.account_id}", self.david)
         self.assertEqual(status, 200)
-        self.assertEqual(body["account"]["balance"], "84210.75")
+        self.assertEqual(body["account"]["balance"], 8421075)
 
     def test_you_cannot_open_an_account_for_someone_else(self):
         status, _ = self.post("/api/accounts", {
@@ -291,7 +289,7 @@ class TestAdminRoutes(ApiTestCase):
             ("POST", f"/api/admin/accounts/{self.a_checking.account_id}/freeze",
              {"frozen": True, "reason": "freezing my own account for fun"}),
             ("POST", f"/api/admin/accounts/{self.a_checking.account_id}/adjust",
-             {"amount": "9999.00", "direction": "CREDIT",
+             {"amount": 999900, "direction": "CREDIT",
               "reason": "giving myself nine thousand dollars"}),
         ]
         for method, path, body in cases:
@@ -303,10 +301,10 @@ class TestAdminRoutes(ApiTestCase):
     def test_admin_adjustment_writes_a_ledger_entry_and_an_audit_row(self):
         status, body = self.post(
             f"/api/admin/accounts/{self.a_checking.account_id}/adjust",
-            {"amount": "50.00", "direction": "CREDIT",
+            {"amount": 5000, "direction": "CREDIT",
              "reason": "Reversing a fee misposted on 2026-09-10"}, self.david)
         self.assertEqual(status, 201)
-        self.assertEqual(body["account"]["balance"], "150.00")
+        self.assertEqual(body["account"]["balance"], 15000)
 
         status, audit = self.get("/api/admin/audit", self.david)
         self.assertEqual(audit["entries"][-1]["action"], "ADJUST_CREDIT")
@@ -315,7 +313,7 @@ class TestAdminRoutes(ApiTestCase):
     def test_an_adjustment_without_a_real_reason_is_400(self):
         status, _ = self.post(
             f"/api/admin/accounts/{self.a_checking.account_id}/adjust",
-            {"amount": "50.00", "direction": "CREDIT", "reason": "oops"}, self.david)
+            {"amount": 5000, "direction": "CREDIT", "reason": "oops"}, self.david)
         self.assertEqual(status, 400)
 
     def test_there_is_no_route_that_sets_a_balance(self):
@@ -338,95 +336,114 @@ class TestAdminRoutes(ApiTestCase):
         self.assertEqual(body["account"]["status"], "FROZEN")
 
         status, _ = self.post(f"/api/accounts/{acct}/deposit",
-                              {"amount": "10.00"}, self.erik)
+                              {"amount": 1000}, self.erik)
         self.assertEqual(status, 409, "a frozen account must refuse a deposit")
 
         self.post(f"/api/admin/accounts/{acct}/freeze",
                   {"frozen": False, "reason": "Review complete, no fraud found"},
                   self.david)
         status, _ = self.post(f"/api/accounts/{acct}/deposit",
-                              {"amount": "10.00"}, self.erik)
+                              {"amount": 1000}, self.erik)
         self.assertEqual(status, 201)
 
 
 # ================================================================ money moves
 
 class TestMoneyOverHttp(ApiTestCase):
-    def test_deposit_returns_the_new_balance_as_a_string(self):
-        """Money leaves as a quoted string, never a bare JSON number.
+    def test_deposit_returns_the_new_balance_as_integer_cents(self):
+        """Money leaves as a JSON integer of cents - never a fractional number,
+        and no longer as a quoted string.
 
-        A bare number becomes an IEEE 754 double the moment JSON.parse runs,
-        which throws away the precision every other layer preserved.
+        A fractional literal becomes an IEEE 754 double the moment JSON.parse
+        runs, which throws away the precision every other layer preserves. An
+        integer does not: JSON integers are exact to 2^53.
         """
         status, body = self.post(f"/api/accounts/{self.a_checking.account_id}/deposit",
-                                 {"amount": "25.50"}, self.aaron)
+                                 {"amount": 2550}, self.aaron)
         self.assertEqual(status, 201)
-        self.assertEqual(body["account"]["balance"], "125.50")
-        self.assertIsInstance(body["account"]["balance"], str)
-        self.assertIsInstance(body["transaction"]["amount"], str)
-        # And it really is quoted in the serialized form, not just a str in Python.
-        self.assertIn('"balance": "125.50"', json.dumps(body, indent=2))
+        self.assertEqual(body["account"]["balance"], 12550)      # 125.50
+        self.assertIsInstance(body["account"]["balance"], int)
+        self.assertIsInstance(body["transaction"]["amount"], int)
+
+        # And it really is an unquoted integer in the serialized form, not just
+        # an int in Python that some later change might start quoting.
+        serialized = json.dumps(body, indent=2)
+        self.assertIn('"balance": 12550', serialized)
+        self.assertNotIn('"12550"', serialized)
+        # Nothing anywhere in the payload carries a decimal point.
+        self.assertNotIn("125.50", serialized)
 
     def test_precision_survives_a_sequence_of_http_deposits(self):
         """The account-11 sequence from the seed file, driven through the API."""
         status, body = self.post("/api/accounts", {"accountType": "CHECKING"}, self.aaron)
         acct = body["account"]["accountId"]
-        for amount in ("1000.10", "234.20", "0.30"):
+        for amount in (100010, 23420, 30):
             self.post(f"/api/accounts/{acct}/deposit", {"amount": amount}, self.aaron)
         _, body = self.post(f"/api/accounts/{acct}/withdraw",
-                            {"amount": "0.04"}, self.aaron)
-        self.assertEqual(body["account"]["balance"], "1234.56")
+                            {"amount": 4}, self.aaron)
+        self.assertEqual(body["account"]["balance"], 123456)
         self.assertNotIn("1234.5599", json.dumps(body))
 
     def test_overdraft_is_409_and_moves_nothing(self):
         status, _ = self.post(f"/api/accounts/{self.a_checking.account_id}/withdraw",
-                              {"amount": "100.01"}, self.aaron)
+                              {"amount": 10001}, self.aaron)
         self.assertEqual(status, 409)
         _, body = self.get(f"/api/accounts/{self.a_checking.account_id}", self.aaron)
-        self.assertEqual(body["account"]["balance"], "100.00")
+        self.assertEqual(body["account"]["balance"], 10000)
 
     def test_savings_minimum_is_enforced_through_the_api(self):
         """The floor a savings account holds is visible in the response and
         enforced on withdrawal, whatever that floor is set to.
 
         Derived from `SavingsAccount.MINIMUM` rather than hardcoded: the minimum
-        is 0.00 today, so the whole balance is withdrawable, but the shape of the
+        is 0 today, so the whole balance is withdrawable, but the shape of the
         rule is what is being tested. No route knows it; the subclass does.
         """
         available = self.a_savings.balance - SavingsAccount.MINIMUM
 
         _, body = self.get(f"/api/accounts/{self.a_savings.account_id}", self.aaron)
-        self.assertEqual(body["account"]["availableForWithdrawal"], f"{available:.2f}")
-        self.assertEqual(body["account"]["minimumBalance"],
-                         f"{SavingsAccount.MINIMUM:.2f}")
+        self.assertEqual(body["account"]["availableForWithdrawal"], available)
+        self.assertEqual(body["account"]["minimumBalance"], SavingsAccount.MINIMUM)
 
         status, _ = self.post(f"/api/accounts/{self.a_savings.account_id}/withdraw",
-                              {"amount": f"{available + Decimal('0.01'):.2f}"},
-                              self.aaron)
+                              {"amount": available + 1}, self.aaron)
         self.assertEqual(status, 409)
 
     def test_bad_amounts_are_400_before_anything_moves(self):
-        bad = ["-50.00", "0.00", "10.555", "abc", "1e5", "", "5,00"]
+        """Zero, negatives, and every shape of non-integer.
+
+        The dollar strings matter most: they are what the previous version of
+        this API accepted, so a client that was not updated sends "50.00" and
+        has to be refused. Reading it as 50 cents would be a hundredfold error
+        in the customer's favour, and "5000.00" a hundredfold the other way.
+        """
+        bad = [0, -50, -1,                             # not positive
+               "50.00", "5000", "abc", "1e5", "", "5,00",  # strings
+               10.555, 50.0, 0.01,                     # floats
+               True, None, [5000], {"cents": 5000}]    # nonsense
         for amount in bad:
             with self.subTest(amount=amount):
                 status, _ = self.post(
                     f"/api/accounts/{self.a_checking.account_id}/deposit",
                     {"amount": amount}, self.aaron)
                 self.assertEqual(status, 400)
+        # Not one of them moved anything.
+        self.assertEqual(self.a_checking.balance, 10000)
 
-    def test_a_json_number_amount_is_rejected(self):
+    def test_a_fractional_json_number_is_rejected(self):
         """`{"amount": 10.50}` parses to a Python float, which money.py refuses.
 
-        The brief's own sample body uses a bare number, so this is the case that
-        will actually be sent. 400 with a clear message beats silently accepting
-        a value that has already lost precision.
+        The brief's own sample body uses a fractional number, so this is the case
+        that will actually be sent. It is ambiguous as well as imprecise - in an
+        API that speaks cents, 10.50 could mean ten and a half cents or ten
+        dollars fifty - so 400 with a clear message beats guessing.
         """
         raw = json.dumps({"amount": 10.50}).encode("utf-8")
         status, body = self.api.handle(
             "POST", f"/api/accounts/{self.a_checking.account_id}/deposit",
             raw, self.auth(self.aaron))
         self.assertEqual(status, 400)
-        self.assertIn("float", body["error"].lower())
+        self.assertIn("cents", body["error"].lower())
 
     def test_a_missing_amount_is_400(self):
         status, body = self.post(f"/api/accounts/{self.a_checking.account_id}/deposit",
@@ -436,29 +453,29 @@ class TestMoneyOverHttp(ApiTestCase):
 
     def test_the_same_client_txn_id_twice_is_409(self):
         """The double-clicked submit button."""
-        body = {"amount": "40.00", "clientTxnId": "submit-attempt-0001"}
+        body = {"amount": 4000, "clientTxnId": "submit-attempt-0001"}
         status, first = self.post(f"/api/accounts/{self.a_checking.account_id}/deposit",
                                   body, self.aaron)
         self.assertEqual(status, 201)
-        self.assertEqual(first["account"]["balance"], "140.00")
+        self.assertEqual(first["account"]["balance"], 14000)
 
         status, _ = self.post(f"/api/accounts/{self.a_checking.account_id}/deposit",
                               body, self.aaron)
         self.assertEqual(status, 409)
 
         _, after = self.get(f"/api/accounts/{self.a_checking.account_id}", self.aaron)
-        self.assertEqual(after["account"]["balance"], "140.00")
+        self.assertEqual(after["account"]["balance"], 14000)
 
     def test_transfer_moves_both_legs(self):
         status, body = self.post("/api/transfers", {
             "fromAccountId": self.a_savings.account_id,
             "toAccountId": self.e_checking.account_id,
-            "amount": "100.00",
+            "amount": 10000,
         }, self.aaron)
         self.assertEqual(status, 201)
         self.assertEqual(body["debit"]["type"], "TRANSFER_OUT")
         self.assertEqual(body["credit"]["type"], "TRANSFER_IN")
-        self.assertEqual(body["account"]["balance"], "400.00")
+        self.assertEqual(body["account"]["balance"], 40000)
 
 
 class TestHistoryAndPagination(ApiTestCase):
@@ -472,7 +489,7 @@ class TestHistoryAndPagination(ApiTestCase):
     def test_paging_is_honoured(self):
         acct = self.a_checking.account_id
         for _ in range(25):
-            self.post(f"/api/accounts/{acct}/deposit", {"amount": "1.00"}, self.aaron)
+            self.post(f"/api/accounts/{acct}/deposit", {"amount": 100}, self.aaron)
         _, page1 = self.get(f"/api/accounts/{acct}/transactions?page=1&pageSize=10",
                             self.aaron)
         self.assertEqual(len(page1["items"]), 10)
@@ -499,7 +516,7 @@ class TestHistoryAndPagination(ApiTestCase):
 
     def test_filtering_by_type(self):
         acct = self.a_checking.account_id
-        self.post(f"/api/accounts/{acct}/withdraw", {"amount": "10.00"}, self.aaron)
+        self.post(f"/api/accounts/{acct}/withdraw", {"amount": 1000}, self.aaron)
         _, body = self.get(f"/api/accounts/{acct}/transactions?type=WITHDRAWAL",
                            self.aaron)
         self.assertEqual(body["total"], 1)
@@ -564,11 +581,9 @@ class TestSeedData(unittest.TestCase):
         """Replaying the ledger through this codebase reproduces figures that
         were computed independently. If these disagree, one of the two is wrong
         and it is worth finding out which before the demo."""
-        from decimal import Decimal
         for account_id, expected in seed_module.EXPECTED_BALANCES.items():
             with self.subTest(account=account_id):
-                self.assertEqual(self.store.get_account(account_id).balance,
-                                 Decimal(expected))
+                self.assertEqual(self.store.get_account(account_id).balance, expected)
 
     def test_everything_reconciles(self):
         self.assertEqual(self.svc.reconcile_all(), [])
@@ -602,7 +617,7 @@ class TestLiveServer(unittest.TestCase):
         svc = BankService(store)
         cls.user = svc.register_user("Live Tester", "live@example.com",
                                      password_hash=SHARED_HASH)
-        cls.account = svc.open_account(cls.user, "CHECKING", "250.00")
+        cls.account = svc.open_account(cls.user, "CHECKING", 25000)
 
         api = BankAPI(svc, secret=SECRET)
         # Port 0 asks the OS for any free port, so the suite never collides with
@@ -645,12 +660,12 @@ class TestLiveServer(unittest.TestCase):
         token = body["token"]
 
         status, body = self.call("POST", f"/api/accounts/{self.account.account_id}/deposit",
-                                 {"amount": "49.99"}, token)
+                                 {"amount": 4999}, token)
         self.assertEqual(status, 201)
-        self.assertEqual(body["account"]["balance"], "299.99")
+        self.assertEqual(body["account"]["balance"], 29999)
 
         status, body = self.call("POST", f"/api/accounts/{self.account.account_id}/withdraw",
-                                 {"amount": "10000.00"}, token)
+                                 {"amount": 1000000}, token)
         self.assertEqual(status, 409)
 
     def test_an_unauthenticated_request_gets_401_over_the_wire(self):

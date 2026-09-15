@@ -25,7 +25,6 @@ No imports from any web framework or database library. The whole module can be
 exercised by calling functions, which is what makes the tests fast and is what
 "clean separation" has to mean in practice.
 """
-from decimal import Decimal
 import threading
 
 from .errors import (
@@ -36,7 +35,7 @@ from .models import (
     ACTIVE, DEPOSIT, FROZEN, ROLE_ADMIN, TRANSFER_IN, TRANSFER_OUT, WITHDRAWAL,
     Account, Transaction, User, make_account,
 )
-from .money import ZERO, parse_amount
+from .money import parse_amount
 from .security import hash_password, verify_password
 
 
@@ -134,17 +133,18 @@ class BankService:
     # --------------------------------------------------------------- accounts
 
     def open_account(self, owner: User, account_type: str,
-                     opening_balance="0.00") -> Account:
-        """Opening balance is not a free gift. If it is non-zero it gets a ledger
-        entry like any other credit, or reconciliation is broken before the
-        account is a second old."""
+                     opening_balance: int = 0) -> Account:
+        """Opening balance is in cents, and is not a free gift. If it is non-zero
+        it gets a ledger entry like any other credit, or reconciliation is broken
+        before the account is a second old."""
         # parse_amount rejects zero, so an opening balance of zero skips it
-        # entirely rather than being validated into a spurious error.
-        opening = parse_amount(opening_balance) if str(opening_balance) not in ("0", "0.00") else ZERO
+        # entirely rather than being validated into a spurious error. Opening an
+        # empty account is a normal thing to do; depositing nothing is not.
+        opening = parse_amount(opening_balance) if opening_balance else 0
         with self._lock:
             account = make_account(account_type, user_id=owner.user_id)
             self.store.add_account(account)
-            if opening > ZERO:
+            if opening > 0:
                 account._apply(opening)
                 self._post(account.account_id, DEPOSIT, opening, None)
             return account
@@ -305,7 +305,7 @@ class BankService:
         self._require_admin(actor)
         return list(self.audit)
 
-    def reconciliation_report(self, actor: User) -> list[tuple[int, Decimal, Decimal]]:
+    def reconciliation_report(self, actor: User) -> list[tuple[int, int, int]]:
         """`reconcile_all()` with the role check attached.
 
         Exists so the controller has a public method to call. `reconcile_all()`
@@ -317,8 +317,9 @@ class BankService:
 
     # ------------------------------------------------------------ invariants
 
-    def reconcile(self, account_id: int) -> tuple[Decimal, Decimal]:
-        """Returns (stored_balance, ledger_sum). These must always be equal.
+    def reconcile(self, account_id: int) -> tuple[int, int]:
+        """Returns (stored_balance, ledger_sum) in cents. These must always be
+        equal, and on integers that equality is exact.
 
         Run this after every test and in the demo. If it ever disagrees, a balance
         was changed somewhere without a matching ledger entry.
@@ -326,7 +327,7 @@ class BankService:
         account = self.store.get_account(account_id)
         return account.balance, self.store.ledger_sum(account_id)
 
-    def reconcile_all(self) -> list[tuple[int, Decimal, Decimal]]:
+    def reconcile_all(self) -> list[tuple[int, int, int]]:
         """Every account that fails reconciliation. Should always be empty."""
         broken = []
         for account in self.store.all_accounts():
@@ -337,7 +338,7 @@ class BankService:
 
     # -------------------------------------------------------------- internals
 
-    def _post(self, account_id: int, txn_type: str, amount: Decimal,
+    def _post(self, account_id: int, txn_type: str, amount: int,
               client_txn_id: str | None) -> Transaction:
         """Write the ledger entry. Called immediately after every balance change,
         with no branch in between that could skip it."""

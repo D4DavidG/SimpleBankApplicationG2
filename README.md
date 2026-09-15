@@ -5,7 +5,7 @@ admin surface. Pure Python, standard library only. **Nothing to `pip install`.**
 
 ```bash
 python demo.py                     # walkthrough of every rule, no server needed
-python -m unittest -q              # 93 tests, ~5 seconds
+python -m unittest -q              # 95 tests, ~6 seconds
 python server.py                   # REST API on http://127.0.0.1:8000, seeded
 python tools/export_postman.py     # regenerate postman_collection.json
 ```
@@ -38,7 +38,7 @@ Requires Python 3.10 or newer (the code uses `str | None` type syntax).
 
 | | |
 | --- | --- |
-| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 17 routes, role-based authorization, an audit log, seed data, 93 tests, a console demo, a generated Postman collection |
+| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 17 routes, role-based authorization, an audit log, seed data, 95 tests, a console demo, a generated Postman collection |
 | **Not here** | A database, a frontend, any third-party package |
 
 The brief's architecture diagram is:
@@ -114,7 +114,7 @@ Each layer depends only on the one below it. Nothing points back up.
 ```
   api.py            Controller.  HTTP in, JSON out.  NO business rules.
        |
-  serializers.py    Domain objects -> JSON dicts.  Money leaves as strings.
+  serializers.py    Domain objects -> JSON dicts.  Money leaves as int cents.
        |
   services.py       Every business rule.  NO HTTP, NO SQL, NO framework.
        |
@@ -124,7 +124,7 @@ Each layer depends only on the one below it. Nothing points back up.
 ```
 
 Supporting modules sit to the side, used by several layers:
-`money.py` (Decimal handling), `security.py` (hashing and tokens),
+`money.py` (cents as ints), `security.py` (hashing and tokens),
 `errors.py` (domain exceptions), `seed.py` (demo data).
 
 **Why this matters for grading.** "Clean MVC separation" is one of the four
@@ -153,13 +153,13 @@ table is the index.
 
 | File | What it does |
 | --- | --- |
-| [bank/money.py](bank/money.py) | **Read this first.** Money is `Decimal`, never `float`. `to_money()` coerces and refuses floats; `parse_amount()` validates anything that came from outside the program; `format_money()` is display only. |
+| [bank/money.py](bank/money.py) | **Read this first.** Money is an `int` number of cents, never a `float` and never a `Decimal`. `to_cents()` refuses anything that is not an int; `parse_amount()` validates anything that came from outside the program; `format_money()` is display only. |
 | [bank/errors.py](bank/errors.py) | The domain exceptions. Business concepts, not HTTP codes. Every class is empty on purpose — the type *is* the information. |
 | [bank/models.py](bank/models.py) | `User`, `Account`, `Transaction`. `Account.balance` is a read-only property; `SavingsAccount` overrides `minimum_balance` so the withdrawal rule is polymorphic rather than an `if`. |
 | [bank/store.py](bank/store.py) | The repository. Dictionaries and lists behind method names a database will later implement. Owns the id sequences (`AUTO_INCREMENT`), the email uniqueness index, and the `client_txn_id` set. |
 | [bank/security.py](bank/security.py) | Password hashing (PBKDF2-HMAC-SHA256, salted, 600,000 rounds) and signed session tokens (HMAC-SHA256 over a base64url JSON payload — a JWT reduced to its load-bearing parts). |
 | [bank/services.py](bank/services.py) | **Every business rule.** Register, authenticate, open account, deposit, withdraw, transfer, history, freeze, adjust, reconcile. Takes a lock around anything that moves money. |
-| [bank/serializers.py](bank/serializers.py) | Domain objects to JSON dicts. Money goes out as a **string**. `password_hash` goes out never. |
+| [bank/serializers.py](bank/serializers.py) | Domain objects to JSON dicts. Money goes out as **integer cents**. `password_hash` goes out never. |
 | [bank/api.py](bank/api.py) | The controller: the route table, the token check, the role check, the error-to-status map, and the `http.server` plumbing at the bottom. |
 | [bank/seed.py](bank/seed.py) | The cohort roster as demo data — 14 users, 20 accounts, 73 transactions — replayed through the real service methods and verified against independently computed balances. |
 | [bank/\_\_init\_\_.py](bank/__init__.py) | The package's public surface. |
@@ -228,28 +228,31 @@ POST /api/accounts/1/deposit
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{"amount": "100.00", "clientTxnId": "a3f1-...-9c2e"}
+{"amount": 10000, "clientTxnId": "a3f1-...-9c2e"}
 ```
 
 ```json
 {
   "transaction": {
     "txnId": 74, "accountId": 1, "type": "DEPOSIT",
-    "amount": "100.00", "signedAmount": "100.00", "direction": "CREDIT",
+    "amount": 10000, "signedAmount": 10000, "direction": "CREDIT",
     "clientTxnId": "a3f1-...-9c2e", "createdAt": "2026-09-15T14:22:01+00:00"
   },
   "account": {
     "accountId": 1, "userId": 1, "userName": "Aaron Forrester",
     "accountType": "CHECKING", "status": "ACTIVE",
-    "balance": "2580.00", "availableForWithdrawal": "2580.00",
-    "minimumBalance": "0.00", "createdAt": "..."
+    "balance": 258000, "availableForWithdrawal": 258000,
+    "minimumBalance": 0, "createdAt": "..."
   }
 }
 ```
 
+That deposit is 100.00 and the resulting balance is 2,580.00.
+
 Three things in that response are deliberate:
 
-- **`balance` is a string.** See [section 7](#7-money-the-rules-that-make-this-a-bank-and-not-a-crud-app).
+- **Every money field is an integer number of cents.** See
+  [section 7](#7-money-the-rules-that-make-this-a-bank-and-not-a-crud-app).
 - **The whole account comes back,** not just the transaction. The client must
   never compute a new balance by adding the amount to the one it was holding —
   that is the frontend doing money arithmetic, and it is wrong the moment two
@@ -269,12 +272,22 @@ honoured only when an admin is opening an account on a customer's behalf. The
 brief's exact body still works; it just no longer works for a customer targeting a
 stranger.
 
-**2. Amounts are strings, and a JSON number is rejected with 400.**
+**2. Amounts are whole cents, and anything else is rejected with 400.**
 
-The brief's sample is `{"amount": 500}`. A bare JSON number parses to a Python
-float, which has already lost precision by the time the server sees it, so
-`money.py` refuses it rather than rounding it and hiding the bug. Send
-`{"amount": "500.00"}`.
+The brief's sample is `{"amount": 500}`, meaning five hundred dollars. Here that
+same body means five dollars, because the unit is cents throughout — five hundred
+dollars is `{"amount": 50000}`.
+
+Two forms are refused rather than interpreted:
+
+- `{"amount": 500.00}` — a fractional JSON number parses to a Python float, which
+  has already lost precision by the time the server sees it.
+- `{"amount": "500.00"}` — a dollars-and-cents string, which is what an earlier
+  version of this API accepted.
+
+Both are ambiguous in an API that speaks cents, and guessing wrong is a
+hundredfold error in one direction or the other. A 400 with a message saying so
+is the only safe answer.
 
 ---
 
@@ -352,25 +365,36 @@ are character-for-character identical after normalising the id.
 
 ## 7. Money: the rules that make this a bank and not a CRUD app
 
-### Money is never a float
+### Money is an integer number of cents, and never a float
 
 ```python
 >>> 1000.10 + 234.20 + 0.30 - 0.04
 1234.5599999999999
 ```
 
-The same arithmetic in `Decimal` gives exactly `1234.56`. Four places this can go
-wrong, and what this codebase does at each:
+A float cannot represent 0.10 exactly, so sums drift, and the drift compounds
+across a ledger. The same figures as cents — `100010 + 23420 + 30 - 4` — come to
+`123456`, exactly, because integer arithmetic has no other option.
+
+Four places this can go wrong, and what this codebase does at each:
 
 | Where | Rule here |
 | --- | --- |
-| Storage | `DECIMAL(12,2)` when the database lands. Not `FLOAT`, not `DOUBLE`, not SQLite `NUMERIC`. |
-| Application | `decimal.Decimal` everywhere. `to_money()` raises `TypeError` on a float rather than rounding it — by the time a float arrives it has already lost precision, so accepting it hides the bug. |
-| JSON | **Serialized as a string.** `"balance": "1234.56"`, never `"balance": 1234.56`. A bare JSON number becomes an IEEE 754 double the instant `JSON.parse` runs. |
-| Frontend | Never `parseFloat` then arithmetic. Keep the string, display with `Intl.NumberFormat`, send amounts back as strings. |
+| Storage | `BIGINT` cents when the database lands. Not `FLOAT`, not `DOUBLE`, not SQLite `NUMERIC`. |
+| Application | `int` everywhere. `to_cents()` raises `TypeError` on a float rather than rounding it — by the time a float arrives it has already lost precision, so accepting it hides the bug. |
+| JSON | **Serialized as an integer.** `"balance": 123456`, never `1234.56`. A fractional JSON number becomes an IEEE 754 double the instant `JSON.parse` runs; an integer is exact to 2^53, which is about ninety trillion dollars in cents. |
+| Frontend | Divide by 100 to display, never to calculate. Render the balance the server sent; send amounts back as whole cents. |
 
-The JSON row is the one most commonly missed, and it discards the precision every
-other layer was careful about.
+The JSON row is the one most commonly missed, and getting it wrong discards the
+precision every other layer was careful about.
+
+**Why not `Decimal`?** It is the other correct answer, and it is what this
+codebase used at first. `Decimal` is exact, but only if every value is quantized
+to two places on the way in — miss one `.quantize()` and a third decimal place
+survives to be rounded inconsistently later. An `int` cannot hold a third decimal
+place at all, so the rule is enforced by the type rather than by remembering to
+call something. `Decimal` also is not JSON-serializable, which is what forced the
+earlier string-on-the-wire design; integers cross JSON intact.
 
 ### Every balance change writes exactly one ledger entry
 
@@ -433,8 +457,8 @@ which is right.
 The brief lists three. These are the nine actually implemented, all in
 `services.py` and nowhere else.
 
-1. Amounts are positive, at most 2 decimal places, and below a per-transaction
-   ceiling of 1,000,000.
+1. Amounts are positive whole cents, and below a per-transaction ceiling of
+   1,000,000.00 (100,000,000 cents).
 2. A withdrawal may not exceed what is **available**, which is the balance minus
    whatever minimum the account type holds. Both types hold 0.00 at present, so
    available equals the balance; the service still never checks the account type
@@ -464,7 +488,7 @@ The service layer raises domain exceptions. `ERROR_STATUS` at the top of
 
 | Exception | Status | When |
 | --- | --- | --- |
-| `InvalidAmount` | **400** | Negative, zero, three decimals, a float, over the ceiling, unparseable |
+| `InvalidAmount` | **400** | Negative, zero, a float, a string, over the ceiling, not an int |
 | `ValueError` / `TypeError` | **400** | Missing field, unknown account type, admin reason too short |
 | *(no/invalid token)* | **401** | Missing, malformed, forged, or expired — one message for all four |
 | *(failed login)* | **401** | 401 means "authenticate"; 403 means "authenticating again will not help" |
@@ -503,18 +527,20 @@ document was computed independently. `seed.load()` asserts all twenty match.
 
 Several balances break something on purpose and should not be tidied up:
 
-| Account | Balance | What it is for |
-| --- | --- | --- |
-| 4 | `0.00` | Empty state, and a withdrawal against exactly zero |
-| 6 | `12.50` | Overdraft rejection — try to withdraw `12.51` |
-| 9 | `84,210.75` | Thousands separators and `tabular-nums` column alignment |
-| 10 | `1,200.00` **FROZEN** | Every deposit and withdrawal must be rejected |
-| 11 | `1,234.56` | `1000.10 + 234.20 + 0.30 - 0.04` — drifts to `1234.5599999999999` in float |
-| 18 | `0.01` | One cent: rounding and truncation in display code |
+| Account | Balance (cents) | Displays as | What it is for |
+| --- | --- | --- | --- |
+| 4 | `0` | `0.00` | Empty state, and a withdrawal against exactly zero |
+| 6 | `1250` | `12.50` | Overdraft rejection — try to withdraw `1251` |
+| 9 | `8421075` | `84,210.75` | Thousands separators and `tabular-nums` column alignment |
+| 10 | `120000` **FROZEN** | `1,200.00` | Every deposit and withdrawal must be rejected |
+| 11 | `123456` | `1,234.56` | `100010 + 23420 + 30 - 4`, which drifts to `1234.5599999999999` if done in float dollars |
+| 18 | `1` | `0.01` | One cent: the smallest unit the system can express |
 
 Accounts 9, 13 and 20 turned out to drift under float arithmetic as well, found
 by accident while verifying the seed file rather than designed in. Four accounts
-now detect a float in the chain rather than one.
+now detect a float in the chain rather than one. They cannot drift as integers,
+but they are kept because the guard is against a future change that reintroduces
+fractional arithmetic somewhere in the chain.
 
 **Four names in the roster were derived from handles and are unconfirmed** (Ayan
 Shabbir, Benjamin Voor, Bianca Alvarado, Justin Lin). Confirm them with their
@@ -611,7 +637,7 @@ during integration week instead of the afternoon it was introduced.
 | Not done | Why, and what it will touch |
 | --- | --- |
 | **A database** | The stack question is open — see section 14. Everything is in memory, so stopping the server discards all state. When it lands, `store.py` is rewritten and nothing else is. |
-| **A frontend** | Today's scope was the backend. The API is CORS-enabled for a dev server on another port, and money is already serialized as strings so the client never has to undo a float. |
+| **A frontend** | Today's scope was the backend. The API is CORS-enabled for a dev server on another port, and money is serialized as integer cents, so the client divides by 100 to display and never has to undo a float. |
 | **httpOnly cookie sessions** | Tokens currently travel in an `Authorization` header, which a React client stores itself. A token in `localStorage` is readable by any injected script, so the cookie version is the better end state — it needs a real CSRF story and an exact-origin CORS policy, not `*`. |
 | **Refresh tokens** | One hour, then log in again. A refresh lifecycle and a session-timeout warning with an extend option (WCAG 2.2.1) belong with the frontend work. |
 | **Rate limiting on login** | PBKDF2 makes each guess cost ~0.6s, which is real but not a substitute for lockout or backoff. |
