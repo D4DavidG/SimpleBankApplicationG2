@@ -52,30 +52,6 @@ Health
 
 Bank account
 
-##Get my accounts
-##    VERB: GET
-##    DESCRIPTION: fetches the list of accounts that belong to the user
-##    INPUT
-##        cookie
-##        user_id
-##    OUTPUT
-##        List of Account view objects that share the user_id
-##    FAILURE STATES:
-##        invalid cookie
-##
-##View Account
-##    VERB: GET
-##    DESCRIPTION: fetches more detailed information about an account
-##    INPUT
-##        cookie_id
-##        user_id
-##        account_id
-##    FAILURE STATES:
-##        invalid cookie
-##        you do not own the account or the account does not exist
-##    OUTPUT:
-##        recent_transactions
-
 Open Account
     PATH: /api/accounts
     VERB: POST
