@@ -57,35 +57,35 @@ Open Account
     VERB: POST
     DESCRIPTION: opens a new bank account for the logged in user. The owner is
                  taken from the cookie, not from the body, so a user cannot open
-                 an account in someone else's name. An admin may pass user_id to
+                 an account in someone else's name. An admin may pass userId to
                  open one on a customer's behalf.
-                 A non-zero opening_balance is posted as a real DEPOSIT
+                 A non-zero openingBalance is posted as a real DEPOSIT
                  transaction, so the ledger still adds up to the balance.
     INPUT
         cookie
-        account_type ("CHECKING" or "SAVINGS")
-        opening_balance (optional, defaults to 0, integer cents)
-        user_id (optional, admin only)
+        accountType ("CHECKING" or "SAVINGS")
+        openingBalance (optional, defaults to 0, integer cents)
+        userId (optional, admin only)
     OUTPUT
         AccountView
     FAILURE STATES:
         invalid cookie
         unknown account type
-        opening_balance is not a valid amount
+        openingBalance is not a valid amount
         you are not an admin and asked to open the account for another user
-        the user_id you named does not exist
+        the userId you named does not exist
 
 Transaction History
-    PATH: /api/accounts/{account_id}/transactions
+    PATH: /api/accounts/{accountId}/transactions
     VERB: GET
     DESCRIPTION: the ledger for one account, newest entries in the page the
                  caller asked for. Paginated from day one so the response shape
                  never has to change later.
     INPUT
         cookie
-        account_id (in the path)
+        accountId (in the path)
         page (optional query, defaults to 1)
-        page_size (optional query, defaults to 20, clamped to 1..100)
+        pageSize (optional query, defaults to 20, clamped to 1..100)
         type (optional query - DEPOSIT, WITHDRAWAL, TRANSFER_IN, TRANSFER_OUT)
     OUTPUT
         Page of TransactionView
@@ -93,8 +93,8 @@ Transaction History
         invalid cookie
         you do not own the account or the account does not exist
     NOTES:
-        A page or page_size that is not a number falls back to the default
-        rather than failing the request. The page_size that comes back is the
+        A page or pageSize that is not a number falls back to the default
+        rather than failing the request. The pageSize that comes back is the
         one the server actually used, which may be smaller than the one asked
         for.
 
@@ -102,14 +102,14 @@ Transaction History
 create transaction
 
 Deposit
-    PATH: /api/accounts/{account_id}/deposit
+    PATH: /api/accounts/{accountId}/deposit
     VERB: POST
     DESCRIPTION: adds money to an account and writes one ledger entry.
     INPUT
         cookie
-        account_id (in the path)
+        accountId (in the path)
         amount (integer cents, e.g. 12500 for 125.00)
-        client_txn_id (optional - see IDEMPOTENCY below)
+        clientTxnId (optional - see IDEMPOTENCY below)
     OUTPUT
         {
             TransactionView transaction,
@@ -122,7 +122,7 @@ Deposit
             a JSON integer (a float or a string is refused, not converted)
         amount is over the per-transaction limit of 100000000 (1,000,000.00)
         the account is frozen
-        this client_txn_id has already been used
+        this clientTxnId has already been used
     NOTES:
         The account is returned alongside the transaction on purpose. The client
         must never add the amount to the balance it was holding - that is the
@@ -130,14 +130,14 @@ Deposit
         open.
 
 Withdraw
-    PATH: /api/accounts/{account_id}/withdraw
+    PATH: /api/accounts/{accountId}/withdraw
     VERB: POST
     DESCRIPTION: takes money out of an account and writes one ledger entry.
     INPUT
         cookie
-        account_id (in the path)
+        accountId (in the path)
         amount (integer cents)
-        client_txn_id (optional)
+        clientTxnId (optional)
     OUTPUT
         {
             TransactionView transaction,
@@ -149,12 +149,12 @@ Withdraw
         amount is invalid or over the per-transaction limit
         the account is frozen
         insufficient funds
-        this client_txn_id has already been used
+        this clientTxnId has already been used
     NOTES:
-        The check is against available_for_withdrawal, not balance. Those are
+        The check is against availableForWithdrawal, not balance. Those are
         the same number today, because no account type holds a minimum at the
         moment. They stop being the same as soon as one does, so read
-        available_for_withdrawal from the account and do not assume the balance
+        availableForWithdrawal from the account and do not assume the balance
         is all reachable.
 
 Transfer
@@ -167,10 +167,10 @@ Transfer
                  because a transfer is an operation on the pair.
     INPUT
         cookie
-        from_account_id
-        to_account_id
+        fromAccountId
+        toAccountId
         amount (integer cents)
-        client_txn_id (optional)
+        clientTxnId (optional)
     OUTPUT
         {
             TransactionView debit,   (the TRANSFER_OUT leg)
@@ -185,7 +185,7 @@ Transfer
         either account is frozen
         insufficient funds in the source account
         amount is invalid or over the per-transaction limit
-        this client_txn_id has already been used
+        this clientTxnId has already been used
     NOTES:
         You must own the source. You do not have to own the destination - that
         is the point of a transfer.
@@ -224,7 +224,7 @@ List All Accounts
         you are not an admin
 
 Freeze / Unfreeze Account
-    PATH: /api/admin/accounts/{account_id}/freeze
+    PATH: /api/admin/accounts/{accountId}/freeze
     VERB: POST
     DESCRIPTION: freezes or unfreezes an account. A frozen account rejects all
                  customer-initiated movement (deposit, withdraw, transfer in or
@@ -233,7 +233,7 @@ Freeze / Unfreeze Account
                  retrying a request that may or may not have landed is safe.
     INPUT
         cookie
-        account_id (in the path)
+        accountId (in the path)
         frozen (true or false, defaults to true)
         reason (required, at least 10 characters - goes in the audit log)
     OUTPUT
@@ -245,7 +245,7 @@ Freeze / Unfreeze Account
         reason is missing or shorter than 10 characters
 
 Adjust Balance
-    PATH: /api/admin/accounts/{account_id}/adjust
+    PATH: /api/admin/accounts/{accountId}/adjust
     VERB: POST
     DESCRIPTION: the only way an admin may change a balance. It posts a normal
                  ledger entry tagged with the acting admin and a written reason,
@@ -256,7 +256,7 @@ Adjust Balance
                  way to tell which of the two numbers was right.
     INPUT
         cookie
-        account_id (in the path)
+        accountId (in the path)
         amount (integer cents, always positive)
         direction ("CREDIT" or "DEBIT")
         reason (required, at least 10 characters)
@@ -320,7 +320,7 @@ Conventions
             Authorization: Bearer <token>
 
         It is signed and carries the user id and role. It expires one hour
-        after it is issued, and the expiry comes back as expires_in alongside
+        after it is issued, and the expiry comes back as expiresIn alongside
         the token at register and login. The role is re-read from storage on
         every request rather than trusted from the token, so an admin demoted
         five minutes ago is not still an admin for the rest of the hour.
@@ -356,7 +356,7 @@ Conventions
 
     IDEMPOTENCY
         Write endpoints (deposit, withdraw, transfer) accept an optional
-        client_txn_id. The client generates one id per submission attempt, so a
+        clientTxnId. The client generates one id per submission attempt, so a
         double-clicked button sends the same id twice and the second one is
         refused instead of moving the money again. Reusing an id that has
         already been accepted is a failure, not a silent no-op.
