@@ -1,0 +1,216 @@
+"""Domain classes. Plain Python objects, no framework, no database.
+
+This is the Day 1 Module 2 material (methods, parameters, scope, overloading)
+applied to the bank domain rather than to exercises.
+
+Three object-oriented decisions worth defending in review:
+
+1. **Encapsulation of `balance`.** `Account.balance` is a read-only property backed
+   by `_balance`. There is no setter. The only way to change a balance is `_apply`,
+   which is called by the service layer alongside a ledger entry. If `balance` were
+   a public attribute, any line of code anywhere could set it and the invariant
+   `balance == sum(ledger)` would be unenforceable.
+
+2. **Inheritance with a real difference.** `CheckingAccount` and `SavingsAccount`
+   differ in one rule: savings accounts hold a minimum balance. That difference
+   lives in an overridden `available_for_withdrawal()`, so the withdraw logic in
+   the service layer does not branch on account type. Adding a third account type
+   later means adding a class, not editing an `if`.
+
+3. **Python has no method overloading.** That was question 2 of Module 2. Java
+   picks between same-named methods by parameter list at compile time; Python
+   binds one name to one function, so a second `def` of the same name simply
+   replaces the first. The Python equivalents are default arguments and
+   `functools.singledispatch`. `Transaction.create()` below uses a classmethod as
+   a named alternative constructor, which is the idiomatic answer to what
+   overloaded constructors are for.
+"""
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from decimal import Decimal
+
+from .errors import InsufficientFunds
+from .money import ZERO, format_money, to_money
+
+# Ledger entry types. A transaction stores a positive amount and takes its
+# direction from the type, so this pair is the single source of truth for sign.
+DEPOSIT = "DEPOSIT"
+WITHDRAWAL = "WITHDRAWAL"
+TRANSFER_IN = "TRANSFER_IN"
+TRANSFER_OUT = "TRANSFER_OUT"
+
+CREDIT_TYPES = frozenset({DEPOSIT, TRANSFER_IN})
+DEBIT_TYPES = frozenset({WITHDRAWAL, TRANSFER_OUT})
+
+ROLE_CUSTOMER = "CUSTOMER"
+ROLE_ADMIN = "ADMIN"
+
+ACTIVE = "ACTIVE"
+FROZEN = "FROZEN"
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass
+class User:
+    """A person. Carries the two columns the brief's `users` table does not have.
+
+    `password_hash` is the opaque string produced by `security.hash_password`, and
+    it is the only representation of a password that ever exists in this program:
+    the plaintext is read from the request, passed straight to the hasher, and
+    never stored on any object. It is nullable because a user may be created
+    without one (the seed roster does this), in which case that user cannot log in.
+
+    `role` is a constrained string rather than a separate roles table. At two roles
+    a join table is the more correct model and the wrong amount of machinery.
+    """
+
+    user_id: int
+    name: str
+    email: str
+    role: str = ROLE_CUSTOMER
+    password_hash: str | None = None
+    created_at: datetime = field(default_factory=_now)
+
+    def __post_init__(self):
+        # Normalise once, here, rather than at every call site. Email is the login
+        # identifier, so "Aaron@Example.com" and "aaron@example.com" must not be
+        # able to become two different accounts.
+        self.email = self.email.strip().lower()
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == ROLE_ADMIN
+
+    def __str__(self) -> str:
+        return f"{self.name} <{self.email}>"
+
+
+@dataclass
+class Transaction:
+    """One immutable ledger entry.
+
+    Entries are never modified and never removed. A correction is a new entry of
+    the opposite direction. `frozen=True` on the dataclass makes that a property
+    of the type rather than a convention people have to remember.
+    """
+
+    txn_id: int
+    account_id: int
+    txn_type: str
+    amount: Decimal
+    client_txn_id: str | None = None
+    created_at: datetime = field(default_factory=_now)
+
+    @property
+    def signed_amount(self) -> Decimal:
+        """What this entry contributes to the balance."""
+        return self.amount if self.txn_type in CREDIT_TYPES else -self.amount
+
+    def __str__(self) -> str:
+        sign = "+" if self.txn_type in CREDIT_TYPES else "-"
+        # Sign as well as colour. Never signal credit or debit by colour alone;
+        # red/green is the most common colour-vision deficiency axis.
+        return f"#{self.txn_id:<4} {self.created_at:%Y-%m-%d}  {self.txn_type:<13} {sign}{format_money(self.amount):>12}"
+
+
+class Account:
+    """Base account. Do not instantiate directly; use a subclass.
+
+    `account_id` starts as None and is assigned by `BankStore.add_account`.
+    Allocating identity is the storage layer's job - it is what a database does
+    with AUTO_INCREMENT - and an object that numbers itself cannot be handed to a
+    different store without the numbers colliding. An earlier version of this
+    class held a class-level `itertools.count`, which meant every account ever
+    created in the process shared one sequence, so ids depended on how many other
+    tests had run first.
+    """
+
+    def __init__(self, user_id: int, account_id: int | None = None,
+                 opening_balance: Decimal | str = ZERO, status: str = ACTIVE):
+        self.account_id = account_id
+        self.user_id = user_id
+        self._balance = to_money(opening_balance)
+        self.status = status
+        self.created_at = _now()
+
+    # ---- encapsulation ----
+
+    @property
+    def balance(self) -> Decimal:
+        """Read-only on purpose. See the module docstring."""
+        return self._balance
+
+    def _apply(self, delta: Decimal) -> None:
+        """Internal. Only the service layer calls this, and only with a matching
+        ledger entry. The leading underscore is the signal that reaching for this
+        from ordinary code means something has gone wrong."""
+        new_balance = self._balance + to_money(delta)
+        if new_balance < ZERO:
+            raise InsufficientFunds("operation would take the balance below zero")
+        self._balance = new_balance
+
+    # ---- polymorphic rule ----
+
+    @property
+    def account_type(self) -> str:
+        raise NotImplementedError
+
+    @property
+    def minimum_balance(self) -> Decimal:
+        return ZERO
+
+    def available_for_withdrawal(self) -> Decimal:
+        """How much may actually leave. Subclasses change this, not the caller."""
+        return self._balance - self.minimum_balance
+
+    def can_withdraw(self, amount: Decimal) -> bool:
+        return self.is_active and to_money(amount) <= self.available_for_withdrawal()
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == ACTIVE
+
+    def __str__(self) -> str:
+        return (f"[{self.account_id:>3}] {self.account_type:<9} "
+                f"{format_money(self._balance):>13}  {self.status}")
+
+    def __repr__(self) -> str:
+        return (f"{type(self).__name__}(account_id={self.account_id}, "
+                f"user_id={self.user_id}, balance={self._balance})")
+
+
+class CheckingAccount(Account):
+    @property
+    def account_type(self) -> str:
+        return "CHECKING"
+
+
+class SavingsAccount(Account):
+    """Holds a minimum balance. This is the only behavioural difference, and it
+    is expressed by overriding `minimum_balance` rather than by the service layer
+    checking `isinstance`."""
+
+    MINIMUM = Decimal("25.00")
+
+    @property
+    def account_type(self) -> str:
+        return "SAVINGS"
+
+    @property
+    def minimum_balance(self) -> Decimal:
+        return self.MINIMUM
+
+
+ACCOUNT_TYPES = {"CHECKING": CheckingAccount, "SAVINGS": SavingsAccount}
+
+
+def make_account(account_type: str, user_id: int, **kwargs) -> Account:
+    """Factory. Keeps `ACCOUNT_TYPES` the one place that knows the mapping."""
+    try:
+        cls = ACCOUNT_TYPES[account_type.upper()]
+    except KeyError:
+        raise ValueError(f"unknown account type: {account_type!r}") from None
+    return cls(user_id=user_id, **kwargs)
