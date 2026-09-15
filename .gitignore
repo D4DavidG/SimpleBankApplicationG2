@@ -12,6 +12,9 @@ env/
 *.pem
 *.key
 
+# AI customization files
+AGENTS.md
+
 # Tooling
 .pytest_cache/
 .coverage
