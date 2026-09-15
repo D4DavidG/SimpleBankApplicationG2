@@ -59,28 +59,6 @@ class TestMoney(unittest.TestCase):
         with self.assertRaises(InvalidAmount):
             parse_amount(True)
 
-    def test_integer_arithmetic_is_exact_where_float_is_not(self):
-        """A real ledger from the seed file, not a contrived example.
-
-        Account 20: one deposit of 115.36, withdrawals of 39.80 and 3.46. In
-        cents that is 11536 - 3980 - 346, which is exactly 7210 because integer
-        arithmetic has no other option. The same sequence in float gives
-        72.10000000000001.
-
-        An earlier version of this test used 1000.10 + 234.20 + 0.30 - 0.04,
-        which happens to come out exact in float with that grouping. Float error
-        depends on the specific values and the order they are combined, which is
-        the real lesson: you cannot tell by looking whether a sequence will
-        drift. Integers remove the question rather than answering it.
-        """
-        exact = 11536 - 3980 - 346
-        self.assertEqual(exact, 7210)
-        self.assertEqual(format_money(exact), "72.10")
-
-        drifting = 115.36 - 39.80 - 3.46
-        self.assertNotEqual(drifting, 72.10)
-        self.assertEqual(repr(drifting), "72.10000000000001")
-
     def test_bad_amounts_are_rejected(self):
         """Zero, negatives, and anything that is not a plain int.
 

@@ -217,68 +217,6 @@ class TestPasswordHashing(unittest.TestCase):
         with self.assertRaises(ValueError):
             hash_password("short")
 
-
-# ============================================================== authorization
-
-class TestOwnershipOverHttp(ApiTestCase):
-    """The IDOR row from the seed document's test table, at the HTTP boundary."""
-
-    def test_reading_another_users_account_is_404(self):
-        status, _ = self.get(f"/api/accounts/{self.e_checking.account_id}", self.aaron)
-        self.assertEqual(status, 404)
-
-    def test_the_404_is_indistinguishable_from_a_missing_account(self):
-        """Not 403. A distinct 'forbidden' confirms the account exists, which is
-        the fact the status code is there to withhold."""
-        _, not_mine = self.get(f"/api/accounts/{self.e_checking.account_id}", self.aaron)
-        _, missing = self.get("/api/accounts/99999", self.aaron)
-        self.assertEqual(
-            not_mine["error"].replace(str(self.e_checking.account_id), "X"),
-            missing["error"].replace("99999", "X"),
-        )
-
-    def test_moving_another_users_money_is_404(self):
-        for path in ("deposit", "withdraw"):
-            with self.subTest(path=path):
-                status, _ = self.post(
-                    f"/api/accounts/{self.e_checking.account_id}/{path}",
-                    {"amount": 1000}, self.aaron)
-                self.assertEqual(status, 404)
-        # And nothing moved: the 404 is a refusal, not a silent no-op after a write.
-        self.assertEqual(self.e_checking.balance, 8421075)
-
-    def test_reading_another_users_history_is_404(self):
-        status, _ = self.get(
-            f"/api/accounts/{self.e_checking.account_id}/transactions", self.aaron)
-        self.assertEqual(status, 404)
-
-    def test_transferring_out_of_an_account_you_do_not_own_is_404(self):
-        status, _ = self.post("/api/transfers", {
-            "fromAccountId": self.e_checking.account_id,
-            "toAccountId": self.a_checking.account_id,
-            "amount": 100000,
-        }, self.aaron)
-        self.assertEqual(status, 404)
-
-    def test_an_admin_may_read_any_account(self):
-        status, body = self.get(f"/api/accounts/{self.e_checking.account_id}", self.david)
-        self.assertEqual(status, 200)
-        self.assertEqual(body["account"]["balance"], 8421075)
-
-    def test_you_cannot_open_an_account_for_someone_else(self):
-        status, _ = self.post("/api/accounts", {
-            "userId": self.erik.user_id, "accountType": "CHECKING",
-        }, self.aaron)
-        self.assertEqual(status, 403)
-
-    def test_an_admin_may_open_an_account_for_someone_else(self):
-        status, body = self.post("/api/accounts", {
-            "userId": self.erik.user_id, "accountType": "SAVINGS",
-        }, self.david)
-        self.assertEqual(status, 201)
-        self.assertEqual(body["account"]["userId"], self.erik.user_id)
-
-
 class TestAdminRoutes(ApiTestCase):
     def test_every_admin_route_refuses_a_customer_with_403(self):
         cases = [
@@ -346,6 +284,65 @@ class TestAdminRoutes(ApiTestCase):
                               {"amount": 1000}, self.erik)
         self.assertEqual(status, 201)
 
+# ============================================================== authorization
+
+class TestOwnershipOverHttp(ApiTestCase):
+    """The IDOR row from the seed document's test table, at the HTTP boundary."""
+
+    def test_reading_another_users_account_is_404(self):
+        status, _ = self.get(f"/api/accounts/{self.e_checking.account_id}", self.aaron)
+        self.assertEqual(status, 404)
+
+    def test_the_404_is_indistinguishable_from_a_missing_account(self):
+        """Not 403. A distinct 'forbidden' confirms the account exists, which is
+        the fact the status code is there to withhold."""
+        _, not_mine = self.get(f"/api/accounts/{self.e_checking.account_id}", self.aaron)
+        _, missing = self.get("/api/accounts/99999", self.aaron)
+        self.assertEqual(
+            not_mine["error"].replace(str(self.e_checking.account_id), "X"),
+            missing["error"].replace("99999", "X"),
+        )
+
+    def test_moving_another_users_money_is_404(self):
+        for path in ("deposit", "withdraw"):
+            with self.subTest(path=path):
+                status, _ = self.post(
+                    f"/api/accounts/{self.e_checking.account_id}/{path}",
+                    {"amount": 1000}, self.aaron)
+                self.assertEqual(status, 404)
+        # And nothing moved: the 404 is a refusal, not a silent no-op after a write.
+        self.assertEqual(self.e_checking.balance, 8421075)
+
+    def test_reading_another_users_history_is_404(self):
+        status, _ = self.get(
+            f"/api/accounts/{self.e_checking.account_id}/transactions", self.aaron)
+        self.assertEqual(status, 404)
+
+    def test_transferring_out_of_an_account_you_do_not_own_is_404(self):
+        status, _ = self.post("/api/transfers", {
+            "fromAccountId": self.e_checking.account_id,
+            "toAccountId": self.a_checking.account_id,
+            "amount": 100000,
+        }, self.aaron)
+        self.assertEqual(status, 404)
+
+    def test_an_admin_may_read_any_account(self):
+        status, body = self.get(f"/api/accounts/{self.e_checking.account_id}", self.david)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["account"]["balance"], 8421075)
+
+    def test_you_cannot_open_an_account_for_someone_else(self):
+        status, _ = self.post("/api/accounts", {
+            "userId": self.erik.user_id, "accountType": "CHECKING",
+        }, self.aaron)
+        self.assertEqual(status, 403)
+
+    def test_an_admin_may_open_an_account_for_someone_else(self):
+        status, body = self.post("/api/accounts", {
+            "userId": self.erik.user_id, "accountType": "SAVINGS",
+        }, self.david)
+        self.assertEqual(status, 201)
+        self.assertEqual(body["account"]["userId"], self.erik.user_id)
 
 # ================================================================ money moves
 
