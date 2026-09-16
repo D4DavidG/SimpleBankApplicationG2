@@ -1,0 +1,17 @@
+# The backend itself is standard library only and needs nothing here. This file
+# exists for the database phase: pymongo is the first third-party package the
+# project has ever required.
+#
+#   pip install -r requirements.txt
+#
+# See mongo.md for the Atlas setup these talk to.
+
+# MongoDB driver.
+#
+# NOT `pymongo[srv]`. Every Atlas tutorial online still says to install that
+# extra; as of 4.18 it does not exist and pip warns about it. dnspython is a
+# hard dependency now, so plain pymongo already resolves `mongodb+srv://`.
+#
+# 4.18.1 ships a cp314 wheel, which matters because this project is being
+# developed on Python 3.14 - an older pin would try to build from source.
+pymongo>=4.18.1,<5
