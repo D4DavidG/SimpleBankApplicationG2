@@ -10,7 +10,7 @@ import unittest
 from bank import (
     AccountNotActive, AccountNotFound, BankService, BankStore,
     DuplicateTransaction, InsufficientFunds, InvalidAmount, NotAuthorized,
-    SavingsAccount, format_money, parse_amount, to_cents,
+    SavingsAccount, format_money, parse_amount, ensure_cents,
 )
 
 # Every amount in this file is in cents. Where a figure is not obvious at a
@@ -46,7 +46,7 @@ class TestMoney(unittest.TestCase):
         """A float has already lost precision by the time it arrives, so it is
         refused rather than converted."""
         with self.assertRaises(TypeError):
-            to_cents(12.50)
+            ensure_cents(12.50)
         with self.assertRaises(InvalidAmount):
             parse_amount(12.50)
 
@@ -55,7 +55,7 @@ class TestMoney(unittest.TestCase):
         explicit check, `{"amount": true}` would be accepted as a one-cent
         deposit instead of refused as nonsense."""
         with self.assertRaises(TypeError):
-            to_cents(True)
+            ensure_cents(True)
         with self.assertRaises(InvalidAmount):
             parse_amount(True)
 

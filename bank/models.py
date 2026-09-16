@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from .errors import InsufficientFunds
-from .money import format_money, to_cents
+from .money import format_money, ensure_cents
 
 # Ledger entry types. A transaction stores a positive amount and takes its
 # direction from the type, so this pair is the single source of truth for sign.
@@ -137,7 +137,7 @@ class Account:
                  opening_balance: int = 0, status: str = ACTIVE):
         self.account_id = account_id
         self.user_id = user_id
-        self._balance = to_cents(opening_balance)
+        self._balance = ensure_cents(opening_balance)
         self.status = status
         self.created_at = _now()
 
@@ -152,7 +152,7 @@ class Account:
         """Internal. Only the service layer calls this, and only with a matching
         ledger entry. The leading underscore is the signal that reaching for this
         from ordinary code means something has gone wrong."""
-        new_balance = self._balance + to_cents(delta)
+        new_balance = self._balance + ensure_cents(delta)
         if new_balance < 0:
             raise InsufficientFunds("operation would take the balance below zero")
         self._balance = new_balance
@@ -173,7 +173,7 @@ class Account:
         return self._balance - self.minimum_balance
 
     def can_withdraw(self, amount: int) -> bool:
-        return self.is_active and to_cents(amount) <= self.available_for_withdrawal()
+        return self.is_active and ensure_cents(amount) <= self.available_for_withdrawal()
 
     @property
     def is_active(self) -> bool:

@@ -40,7 +40,7 @@ from .models import (
     TRANSFER_OUT, WITHDRAWAL, Account, CheckingAccount, SavingsAccount,
     Transaction, User, make_account,
 )
-from .money import format_money, parse_amount, to_cents
+from .money import format_money, parse_amount, ensure_cents
 from .security import hash_password, issue_token, read_token, verify_password
 from .serializers import account_json, transaction_json, user_json
 from .services import BankService
@@ -55,7 +55,7 @@ __all__ = [
     "User", "Account", "CheckingAccount", "SavingsAccount", "Transaction",
     "make_account",
     # money
-    "to_cents", "parse_amount", "format_money",
+    "ensure_cents", "parse_amount", "format_money",
     # security
     "hash_password", "verify_password", "issue_token", "read_token",
     # serialization

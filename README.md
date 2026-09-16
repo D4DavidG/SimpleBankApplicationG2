@@ -153,7 +153,7 @@ table is the index.
 
 | File | What it does |
 | --- | --- |
-| [bank/money.py](bank/money.py) | **Read this first.** Money is an `int` number of cents, never a `float` and never a `Decimal`. `to_cents()` refuses anything that is not an int; `parse_amount()` validates anything that came from outside the program; `format_money()` is display only. |
+| [bank/money.py](bank/money.py) | **Read this first.** Money is an `int` number of cents, never a `float` and never a `Decimal`. `ensure_cents()` refuses anything that is not an int; `parse_amount()` validates anything that came from outside the program; `format_money()` is display only. |
 | [bank/errors.py](bank/errors.py) | The domain exceptions. Business concepts, not HTTP codes. Every class is empty on purpose — the type *is* the information. |
 | [bank/models.py](bank/models.py) | `User`, `Account`, `Transaction`. `Account.balance` is a read-only property; `SavingsAccount` overrides `minimum_balance` so the withdrawal rule is polymorphic rather than an `if`. |
 | [bank/store.py](bank/store.py) | The repository. Dictionaries and lists behind method names a database will later implement. Owns the id sequences (`AUTO_INCREMENT`), the email uniqueness index, and the `client_txn_id` set. |
@@ -381,7 +381,7 @@ Four places this can go wrong, and what this codebase does at each:
 | Where | Rule here |
 | --- | --- |
 | Storage | `BIGINT` cents when the database lands. Not `FLOAT`, not `DOUBLE`, not SQLite `NUMERIC`. |
-| Application | `int` everywhere. `to_cents()` raises `TypeError` on a float rather than rounding it — by the time a float arrives it has already lost precision, so accepting it hides the bug. |
+| Application | `int` everywhere. `ensure_cents()` raises `TypeError` on a float rather than rounding it — by the time a float arrives it has already lost precision, so accepting it hides the bug. |
 | JSON | **Serialized as an integer.** `"balance": 123456`, never `1234.56`. A fractional JSON number becomes an IEEE 754 double the instant `JSON.parse` runs; an integer is exact to 2^53, which is about ninety trillion dollars in cents. |
 | Frontend | Divide by 100 to display, never to calculate. Render the balance the server sent; send amounts back as whole cents. |
 

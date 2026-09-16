@@ -48,12 +48,9 @@ in the middle of a calculation.
 MAX_TXN_AMOUNT = 100_000_000  # 1,000,000.00 per transaction
 
 
-def to_cents(value) -> int:
+def ensure_cents(value) -> int:
     """Accept a value that is already a whole number of cents, or refuse it.
-
-    This is deliberately not a converter. There is nothing to convert to: if a
-    value is not an `int`, it did not come from this system's money type, and
-    guessing what it meant is how a 25-dollar amount becomes a 25-cent one.
+    used for type safety, to ensure money is an integer.
 
     `bool` is rejected explicitly because `bool` is a subclass of `int` in
     Python, so `True` would otherwise sail through and be worth one cent.
@@ -81,18 +78,11 @@ def parse_amount(raw) -> int:
     the input.
 
     A JSON body of `{"amount": 2500}` arrives here as the int 2500 and passes.
-    `{"amount": 25.00}` arrives as a float and is refused rather than rounded -
-    a float is the client saying "dollars" to an API that speaks cents, and the
-    two readings differ by a factor of a hundred. Refusing is the only safe
-    answer; guessing would be a silent 100x error in either direction.
+    `{"amount": 25.00}` arrives as a float and is refused.
     """
     from .errors import InvalidAmount
 
-    if isinstance(raw, bool) or not isinstance(raw, int):
-        raise InvalidAmount(
-            "amount must be a whole number of cents given as a JSON integer, "
-            "e.g. 2500 for 25.00"
-        )
+    ensure_cents(raw)
     if raw <= 0:
         raise InvalidAmount("amount must be greater than zero")
     if raw > MAX_TXN_AMOUNT:
@@ -112,7 +102,7 @@ def format_money(cents: int) -> str:
     Negatives are handled by taking the sign off first. `divmod(-12345, 100)` is
     `(-124, 55)` in Python, which would print as -124.55 rather than -123.45.
     """
-    cents = to_cents(cents)
+    cents = ensure_cents(cents)
     sign = "-" if cents < 0 else ""
     whole, part = divmod(abs(cents), 100)
     return f"{sign}{whole:,}.{part:02d}"

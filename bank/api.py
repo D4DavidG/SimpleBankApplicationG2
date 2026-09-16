@@ -93,10 +93,10 @@ ERROR_STATUS = [
     # ValueError covers the service layer's own argument checks - a missing name,
     # an unknown account type, an admin reason that is too short.
     (ValueError, 400),
-    # money.to_cents raises TypeError on anything that is not an int number of
+    # money.ensure_cents raises TypeError on anything that is not an int number of
     # cents. That is a client mistake, not a server fault, so it is a 400 and not
     # a 500. (parse_amount catches most of these first and raises InvalidAmount;
-    # this row covers the paths that reach to_cents directly.)
+    # this row covers the paths that reach ensure_cents directly.)
     (TypeError, 400),
 ]
 
