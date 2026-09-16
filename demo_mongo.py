@@ -27,3 +27,14 @@ except Exception as error:
     )
 finally:
     client.close()
+
+# Expected output:
+# {
+#     "_id": "5ca4bbc7a2dd94ee5816238c",
+#     "account_id": 371138,
+#     "limit": 9000,
+#     "products": [
+#         "Derivatives",
+#         "InvestmentStock"
+#     ]
+# }
