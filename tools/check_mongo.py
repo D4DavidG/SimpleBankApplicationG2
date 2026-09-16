@@ -179,6 +179,11 @@ def check_uri():
     if not db_name:
         db_name = "simple_bank_test"
         Out.info(f"MONGODB_DB is not set; using {db_name!r} for this check only.")
+        # The server treats a missing MONGODB_DB as a hard error rather than
+        # guessing, so a passing check here would otherwise be followed by a
+        # server that refuses to start and a puzzled teammate.
+        Out.info("WARNING: server.py will REFUSE TO START without MONGODB_DB.")
+        Out.info("         Add MONGODB_DB=simple_bank_<yourname> to .env.")
     else:
         Out.ok(f"MONGODB_DB = {db_name}")
         if db_name == "simple_bank":
@@ -394,9 +399,9 @@ def main():
     print(f"  cluster:  {redact(uri)}")
     print(f"  database: {db_name}")
     print()
-    print("  Next:  python tools/seed_mongo.py     load the demo roster")
-    print("         python server.py --mongo      serve the API from Atlas")
-    print("         python test_mongo.py          21 tests against this cluster")
+    print("  Next:  python server.py                 serve the API from Atlas")
+    print("         python server.py --reset         wipe and reload the demo data")
+    print("         MONGO_TESTS=1 python test_mongo.py    tests against this cluster")
     return OK
 
 

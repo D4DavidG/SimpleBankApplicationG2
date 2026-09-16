@@ -1,15 +1,17 @@
-"""In-memory storage.
+"""In-memory repository.
 
-No database today. This class holds everything in dictionaries and lists.
+Holds everything in dictionaries and lists. The test suites and the console demo
+use it, because it needs no network and starts clean every run.
 
-It is written as a repository on purpose: the service layer talks to these method
-names and never to a dictionary directly. When MySQL or MongoDB arrives later in
-the week, this file is the only one that gets rewritten and the business rules in
-services.py do not change at all. That is the same reason the class exists as a
-seam rather than the services just using globals.
+The server uses mongo_store.MongoStore instead when a MongoDB connection string
+is configured. Both classes have the same method names, and that is the whole
+design: the service layer talks to these names and never to a dictionary or a
+collection directly, so neither the rules in services.py nor the routes in api.py
+know which store they were given.
 """
-import contextlib
 import itertools
+import threading
+from contextlib import contextmanager
 
 from .errors import AccountNotFound, EmailAlreadyUsed, UserNotFound
 from .models import Account, Transaction, User
@@ -21,6 +23,7 @@ class BankStore:
         self._email_index: dict[str, int] = {}
         self._accounts: dict[int, Account] = {}
         self._transactions: list[Transaction] = []
+        self._audit: list[tuple] = []
         # Identity sequences. These stand in for AUTO_INCREMENT, and living here
         # rather than on the model classes is what makes two BankStore instances
         # genuinely independent - each numbers its own rows from 1.
@@ -28,6 +31,24 @@ class BankStore:
         self._account_ids = itertools.count(1)
         self._txn_ids = itertools.count(1)
         self._client_txn_ids: set[str] = set()
+        # Stands in for a database transaction. The service layer runs every
+        # change inside atomic(), so two threads cannot interleave a balance check
+        # and the write it guards. Reentrant, because one service method can call
+        # another that also opens an atomic block.
+        self._lock = threading.RLock()
+
+    # ---- units of work ----
+
+    @contextmanager
+    def atomic(self):
+        """Run a group of reads and writes as one unit.
+
+        Here that is a lock, and it is enough: changes are made to the stored
+        objects directly, so there is never a half-written copy to roll back.
+        MongoStore.atomic() gives the same guarantee with a real transaction.
+        """
+        with self._lock:
+            yield
 
     # ---- users ----
 
@@ -36,10 +57,7 @@ class BankStore:
         """Insert a user, rejecting a duplicate email.
 
         `_email_index` is this class standing in for the `UNIQUE` index on
-        `users.email` that the database will provide. Keeping the uniqueness check
-        here rather than in the service layer is deliberate: it is a storage
-        constraint, and when MySQL arrives the index enforces it for free and this
-        method shrinks to an INSERT.
+        `users.email`. MongoStore gets the same guarantee from a real unique index.
         """
         key = email.strip().lower()
         if key in self._email_index:
@@ -83,39 +101,6 @@ class BankStore:
         except KeyError:
             raise AccountNotFound(f"no account with id {account_id}") from None
 
-    def save_account(self, account: Account) -> Account:
-        """Persist an account whose fields the service layer just changed.
-
-        A no-op here, and deliberately not removed as dead code. `get_account`
-        returns the very object held in `_accounts`, so mutating it *is* the
-        save - but that is a property of storing objects in a dict, not a
-        property of storage in general. A database store hands back a fresh
-        object built from a document, and a mutation to that object reaches
-        nothing unless somebody writes it back.
-
-        So the service layer calls this after every change to an account, and in
-        memory it costs an attribute lookup. Without it, `MongoStore` would need
-        `services.py` to be written differently from the version the tests
-        exercise, which is exactly the coupling the repository pattern is here
-        to prevent.
-        """
-        self._accounts[account.account_id] = account
-        return account
-
-    @contextlib.contextmanager
-    def transaction(self):
-        """Group writes so they all happen or none do.
-
-        Nothing to do in memory: no other thread can interleave, because
-        `BankService` holds an RLock across every method that moves money, and
-        nothing here can fail partway and leave a half-written dict.
-
-        It exists so `services.transfer()` can declare the boundary it needs in
-        one place. `MongoStore` implements this with a real session, which is the
-        version that holds when the process is not the only writer.
-        """
-        yield
-
     def accounts_for_user(self, user_id: int) -> list[Account]:
         return sorted(
             (a for a in self._accounts.values() if a.user_id == user_id),
@@ -125,14 +110,23 @@ class BankStore:
     def all_accounts(self) -> list[Account]:
         return sorted(self._accounts.values(), key=lambda a: a.account_id)
 
+    def save_balance(self, account: Account) -> None:
+        """Persist a balance changed by Account._apply.
+
+        Nothing to do here: the object the service changed is the stored record.
+        MongoStore has to write it back, which is why the service always calls it.
+        """
+
+    def save_status(self, account: Account) -> None:
+        """Persist a status change such as a freeze. Nothing to do here, as above."""
+
     # ---- transactions ----
 
     def next_txn_id(self) -> int:
         return next(self._txn_ids)
 
     def client_txn_id_seen(self, client_txn_id: str | None) -> bool:
-        """Idempotency check. Stands in for the UNIQUE index the database will
-        provide once there is a database."""
+        """Idempotency check. Stands in for the unique index MongoStore uses."""
         return client_txn_id is not None and client_txn_id in self._client_txn_ids
 
     def add_transaction(self, txn: Transaction) -> Transaction:
@@ -159,3 +153,13 @@ class BankStore:
             if txn.account_id == account_id:
                 total += txn.signed_amount
         return total
+
+    # ---- audit log ----
+
+    def add_audit_entry(self, actor_user_id: int, action: str,
+                        account_id: int | None, reason: str) -> None:
+        self._audit.append((actor_user_id, action, account_id, reason))
+
+    def audit_entries(self) -> list[tuple]:
+        """Oldest first, as a copy, so a caller cannot append by holding the list."""
+        return list(self._audit)

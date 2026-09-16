@@ -245,18 +245,17 @@ one and it never contains a real password. Check before every commit: if
 matching.
 
 `.env` is read by [`bank/config.py`](bank/config.py), which `server.py`,
-`tools/seed_mongo.py`, `tools/check_mongo.py` and `test_mongo.py` all call. It is
-thirty lines of standard library; `KEY=value` with comments did not justify a
-dependency.
+`tools/check_mongo.py` and `test_mongo.py` all call. It is standard library only;
+`KEY=value` with comments did not justify a dependency.
 
 A real environment variable still wins over the file, which is the conventional
 direction and means
 
 ```bash
-MONGODB_DB=simple_bank_test python server.py --mongo
+MONGODB_DB=simple_bank_scratch python server.py
 ```
 
-overrides it without editing anything.
+overrides it for one run without editing anything.
 
 ---
 
@@ -314,104 +313,120 @@ when you deliberately want the shared data.
 
 ---
 
-## Using it: seed, then run
+## Using it
 
 Once `python tools/check_mongo.py` passes:
 
 ```bash
-python tools/seed_mongo.py        # load the demo roster into your database
-python server.py --mongo          # serve the API from MongoDB
+python server.py                 # MongoDB, if .env has MONGODB_URI and MONGODB_DB
+python server.py --memory        # ignore .env, run in memory
+python server.py --empty         # no demo data
+python server.py --reset         # wipe YOUR database and reload the demo data
 ```
 
-Without `--mongo` the server runs in memory exactly as before, which stays the
-default. That flag is the entire difference.
+**MongoDB is the default when `.env` is filled in.** There is no `--mongo` flag;
+the presence of `MONGODB_URI` is the switch, and `--memory` is the way back.
+
+`MONGODB_DB` is **required**, not optional — the server refuses to start without
+it rather than guessing which database you meant. `tools/check_mongo.py` warns
+about this too, because a passing connection check followed by a server that will
+not start is a confusing five minutes.
 
 ### Seeding
 
-`tools/seed_mongo.py` **replaces section 5 of `seed_data_bank_app.md`. Do not run
-that one.** It writes `NumberDecimal("2480.00")`, and this codebase moved to
-integer cents after that document was written:
+The demo roster loads **automatically the first time your database is empty**, and
+only then. Re-seeding on every start would try to recreate records that already
+exist and collide on their email addresses. To start over, use `--reset`.
 
-```
->>> to_cents(Decimal128("2480.00"))
-TypeError: Money must be an int number of cents, e.g. 2500 for 25.00
-```
+`--reset` refuses to wipe the shared `simple_bank` database unless you also pass
+`--force`, which is the one place where deleting the data everyone demos from
+needs a second deliberate keystroke.
 
-A database seeded that way looks perfectly correct in the Atlas data explorer and
-cannot be read by the application at all. (`money.py` refuses anything that is
-not an `int` on purpose, so this fails loudly rather than becoming a silent 100x
-error — but it still costs you an evening.)
-
-The script seeds by replaying all 73 transactions through the real
+Seeding works by replaying all 73 transactions through the real
 `BankService.deposit` and `.withdraw`, so balances cannot disagree with their
-ledger: reconciliation is true by construction rather than asserted afterwards.
-It refuses to run against a non-empty database unless you pass `--reset`, and
-`--reset` makes you type the database name.
+ledger — reconciliation is true by construction rather than asserted afterwards.
 
-Seeding is a **setup step, not a startup step**. Mongo keeps what the last run
-left in it, so `server.py --mongo` does not re-seed — it reports what is there
-and tells you how to load the roster if the database is empty.
+> **Do not run section 5 of `seed_data_bank_app.md`.** It writes
+> `NumberDecimal("2480.00")`, and this codebase moved to integer cents after that
+> document was written:
+>
+> ```
+> >>> to_cents(Decimal128("2480.00"))
+> TypeError: Money must be an int number of cents, e.g. 2500 for 25.00
+> ```
+>
+> A database seeded that way looks perfectly correct in the Atlas data explorer
+> and cannot be read by the application at all. `money.py` refuses anything that
+> is not an `int` on purpose, so it fails loudly rather than becoming a silent
+> 100x error — but it still costs you an evening. The seeding built into
+> `server.py` is the supported path.
+
+---
 
 ## How it fits the code
 
 It fits where [`store.py`](bank/store.py) always said it would:
 
-> When MySQL or MongoDB arrives later in the week, this file is the only one that
-> gets rewritten and the business rules in `services.py` do not change at all.
+> the service layer talks to these names and never to a dictionary or a
+> collection directly, so neither the rules in services.py nor the routes in
+> api.py know which store they were given.
 
-That turned out to be **almost** true, and the exception is worth knowing.
+[`MongoStore`](bank/mongo_store.py) answers the same method names as `BankStore`,
+and `api.py`, `models.py` and `serializers.py` did not change. Two things had to
+be **added to the repository interface**, because they are the places where "it
+still works" and "it is still correct" come apart:
 
-[`MongoStore`](bank/mongo_store.py) implements the same method names as
-`BankStore` — `add_user`, `get_account`, `add_transaction`, `ledger_sum`, the
-rest — and `services.py`, `api.py`, `models.py`, `serializers.py` and the
-existing tests are untouched. But two methods had to be **added to the interface**
-and called from the service layer:
-
-| Added | Why it could not be avoided |
+| Added to the store | Why it could not be avoided |
 | --- | --- |
-| `save_account(account)` | `BankStore.get_account` returns the object in the dict, so `account._apply(amount)` *is* the save. `MongoStore.get_account` returns a fresh object built from a document, and mutating that reaches nothing. Without an explicit write-back, a deposit would update a balance in memory and nothing on the server — **and every existing test would still pass**, because the in-memory store does not need the call. |
-| `transaction()` | `threading.RLock` guards one process. `transfer()` needs four writes to be one unit across processes, and only a real MongoDB session does that. It is a `nullcontext` for `BankStore`. |
+| `atomic()` | A context manager around every change. In memory it is an `RLock`; in MongoDB it is a multi-document transaction, which is the version that also holds across separate server processes. `services.py` no longer owns a lock at all — concurrency control belongs to whatever is doing the storing. |
+| `save_balance()` / `save_status()` | `BankStore.get_account` returns the object held in the dict, so `account._apply(amount)` *is* the save. `MongoStore.get_account` returns a fresh object built from a document, and mutating that reaches nothing. Without an explicit write-back a deposit would update memory and nothing on the server — **and every in-memory test would still pass**, because the dict store does not need the call. |
 
-So the honest version of the claim is: the repository seam held, and it cost two
-methods on the interface rather than a rewrite of the business rules. That is
-what the pattern was for, and it is a better thing to be able to say in a review
-than a claim that nothing changed.
+The audit log moved too: `BankService.audit` is now a property reading
+`store.audit_entries()`, so the record of which admin adjusted what survives a
+restart alongside the balances it explains.
 
 ### The four mechanisms that changed shape
 
-| In memory | In Mongo | Where |
+| In memory | In Mongo | Note |
 | --- | --- | --- |
 | `itertools.count(1)` | `counters` collection, `find_one_and_update` + `$inc` | Atomic server-side, so two processes never get the same id. Ids stay integers because the API returns integers. |
-| `_email_index` dict | **unique index** on `users.email` | The duplicate-email rejection is now the index, not a check that could be forgotten |
-| `_client_txn_ids` set | **unique sparse index** on `transactions.client_txn_id` | The rule that gets genuinely *stronger*: a set protects one process, an index protects the database |
-| `threading.RLock()` | a real **transaction** in `transfer()` | Requires a replica set. This is why we are on Atlas |
+| the email dict | **unique index** on `users.email` | The duplicate-email rejection is the index now, not a check that can be forgotten |
+| the client-txn-id set | **unique partial index** on `transactions.client_txn_id` | `partialFilterExpression: {$type: "string"}` rather than `sparse`, so the many transactions with no client id are excluded outright instead of colliding on a shared null |
+| `threading.RLock()` | a real **transaction** | Requires a replica set. This is why we are on Atlas |
 
-Indexes are created by `MongoStore.ensure_indexes()` at startup, not by anyone
-clicking in the Atlas UI. `create_index` is idempotent, and an index that exists
-on one person's cluster but not in version control is a rule that silently does
-not apply to everybody else.
+Indexes are created by `ensure_indexes()` at startup, not by anyone clicking in
+the Atlas UI — an index that exists on one person's cluster but not in version
+control is a rule that silently does not apply to everybody else.
+
+### Driver errors do not escape the store
+
+A dropped connection becomes `StorageUnavailable` and a write conflict becomes
+`ConcurrentUpdate`, so `api.py` can answer 503 and 409 without importing pymongo.
+That is what keeps the controller honest about the layering: it never learns
+which database is underneath it.
 
 ### Money
 
 Integer cents, stored as a BSON 64-bit integer — **not** `Decimal128`. `$sum`
 over 64-bit integers is exact, which is what lets `ledger_sum()` be computed
-server-side by an aggregation and still compared with `==` and no tolerance.
+server-side and still compared with `==` and no tolerance.
 
 ### Verifying it
 
 ```bash
-python test_mongo.py      # 21 tests against the real cluster
+MONGO_TESTS=1 python test_mongo.py          # bash
+$env:MONGO_TESTS = "1"; python test_mongo.py   # PowerShell
 ```
 
-Skipped automatically when `MONGODB_URI` is unset, so a teammate who has not done
-the Atlas setup sees a skip rather than a failure. Every balance assertion in it
-re-reads from the database through a second connection rather than trusting the
-object in hand — that is the whole point, since the write-back bug described
-above passes any test that checks the returned object.
+Opt-in, and skipped otherwise, so a teammate who has not done the Atlas setup
+sees skips rather than failures. They always use `simple_bank_test` whatever
+`MONGODB_DB` says, so they cannot wipe the database you are working in.
 
-It includes a test that forces a failure between a transfer's two legs and
-asserts that **both** are rolled back. That one fails on a standalone `mongod`
-and passes on Atlas, which is the replica-set argument made executable.
+Every balance assertion re-reads from the database rather than trusting the
+object in hand — that is the point, since the missing-write-back bug above passes
+any test that checks the returned object. One test runs eight withdrawals across
+**two separate connections** and asserts the account cannot be overdrawn, which
+is the guarantee a single-process lock cannot give you.
 
 ---
 

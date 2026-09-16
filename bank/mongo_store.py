@@ -1,459 +1,407 @@
-"""MongoDB storage. The same repository interface as `BankStore`, backed by Atlas.
+"""MongoDB repository, with the same method names as the in-memory BankStore.
 
-    from bank import BankService
-    from bank.mongo_store import MongoStore
+The service layer calls add_account, get_account, add_transaction and the rest
+without knowing which store it was given. This class answers them from MongoDB,
+so data survives a restart and every server pointed at the same database sees the
+same records. Atlas setup is in mongo.md.
 
-    store = MongoStore()                  # reads MONGODB_URI / MONGODB_DB
-    service = BankService(store)          # identical to the in-memory version
+What the in-memory store does in Python, this one hands to the database:
 
-`services.py` cannot tell which store it was handed, which is the whole point of
-`store.py` having been written as a class rather than as module-level dicts. The
-business rules, the API, the serializers and the tests are untouched by this file
-existing.
+    in memory                     here
+    ----------------------------  ------------------------------------------------
+    itertools.count() ids         a counters collection, incremented atomically
+    the email dict                a unique index on users.email
+    the set of client txn ids     a unique index on transactions.client_txn_id
+    a lock around each change     a multi-document transaction, from atomic()
 
-WHY THIS IS NOT IMPORTED BY `bank/__init__.py`
-----------------------------------------------
-Importing this module requires pymongo. The backend's promise is that it runs on
-a clean machine with nothing installed, and `python server.py` still honours that
-- Mongo is opt-in via `--mongo`, and the import happens inside that branch. A
-teammate who has not done the Atlas setup is not blocked by someone else having.
+Money is a plain integer number of cents. BSON has a 64-bit integer type and a
+Python int maps onto it exactly, so no amount is ever stored as a Double.
 
-THE FOUR THINGS THAT CHANGE SHAPE FROM `BankStore`
---------------------------------------------------
-1. **Ids.** `itertools.count(1)` becomes a `counters` collection incremented with
-   `find_one_and_update` + `$inc`, which is atomic on the server. We keep integer
-   ids rather than adopting ObjectId because the API returns integers, the brief's
-   samples show integers, and the Postman collection references specific numbers.
-
-2. **Email uniqueness.** The `_email_index` dict becomes a unique index on
-   `users.email`. The check is no longer code that can be forgotten; it is a
-   constraint the server enforces for every writer.
-
-3. **Idempotency.** The `_client_txn_ids` set becomes a unique, sparse index on
-   `transactions.client_txn_id`. This is the one that genuinely gets *stronger*:
-   a Python set protects one process, an index protects the database.
-
-4. **Atomicity.** `threading.RLock` guards one process. `transaction()` opens a
-   real MongoDB session, which is what makes `transfer()`'s four writes all-or-
-   nothing when the server is not the only writer. This requires a replica set;
-   Atlas M0 is one. See mongo.md.
-
-MONEY
------
-Integer cents, stored as a BSON 64-bit integer. Deliberately **not** Decimal128,
-which is what the older `seed_data_bank_app.md` planning document specifies - that
-document predates the move to integer cents and its Mongo section would produce a
-database this code refuses to read. `money.to_cents()` rejects anything that is
-not an int, by design, so the failure is loud rather than a silent 100x error.
+Driver errors do not leave this file. A lost connection becomes
+StorageUnavailable and a write conflict becomes ConcurrentUpdate, so the
+controller can answer 503 and 409 without importing pymongo.
 """
-import contextlib
+import functools
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from . import config
-from .errors import AccountNotFound, DuplicateTransaction, EmailAlreadyUsed, UserNotFound
-from .models import ACTIVE, CREDIT_TYPES, Account, Transaction, User, make_account
+from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
+from pymongo.errors import (
+    ConnectionFailure, DuplicateKeyError, OperationFailure, PyMongoError,
+)
 
-USERS = "users"
-ACCOUNTS = "accounts"
-TRANSACTIONS = "transactions"
-COUNTERS = "counters"
+from .errors import (
+    AccountNotFound, ConcurrentUpdate, DuplicateTransaction, EmailAlreadyUsed,
+    StorageUnavailable, UserNotFound,
+)
+from .models import CREDIT_TYPES, Account, Transaction, User, make_account
+
+COLLECTIONS = ("users", "accounts", "transactions", "counters", "audit_log")
+
+# MongoDB's error code for two transactions trying to change one document.
+WRITE_CONFLICT = 112
 
 
-def _utc(value) -> datetime:
-    """Re-attach UTC to a datetime read back from MongoDB.
+def _translate(exc: PyMongoError) -> Exception:
+    """The domain error for a driver error, or the driver error itself if none fits."""
+    if isinstance(exc, ConnectionFailure):
+        return StorageUnavailable(
+            "the database is unavailable right now; nothing was changed, "
+            "please try again shortly")
+    if exc.has_error_label("TransientTransactionError") or (
+            isinstance(exc, OperationFailure) and exc.code == WRITE_CONFLICT):
+        return ConcurrentUpdate(
+            "the account was changed by another request at the same moment; "
+            "nothing was applied, please try again")
+    return exc
 
-    BSON stores an instant, and pymongo hands it back as a *naive* datetime by
-    default. Our models are timezone-aware, and `serializers` calls `.isoformat()`
-    on them - so without this, a document round-trip silently drops the `+00:00`
-    and the API starts emitting timestamps with no zone. A client parsing those
-    as local time is off by however many hours it happens to be.
-    """
-    if value is None:
-        return datetime.now(timezone.utc)
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+
+def _guarded(method):
+    """Translate driver errors raised by a store method into domain errors."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except PyMongoError as exc:
+            translated = _translate(exc)
+            if translated is exc:
+                raise
+            raise translated from exc
+    return wrapper
+
+
+# ------------------------------------------------------------------ documents
+
+def _user_from(doc: dict) -> User:
+    return User(user_id=doc["_id"], name=doc["name"], email=doc["email"],
+                role=doc["role"], password_hash=doc.get("password_hash"),
+                created_at=doc["created_at"])
+
+
+def _account_from(doc: dict) -> Account:
+    account = make_account(doc["account_type"], user_id=doc["user_id"],
+                           account_id=doc["_id"], opening_balance=doc["balance"],
+                           status=doc["status"])
+    account.created_at = doc["created_at"]
+    return account
+
+
+def _transaction_from(doc: dict) -> Transaction:
+    return Transaction(txn_id=doc["_id"], account_id=doc["account_id"],
+                       txn_type=doc["txn_type"], amount=doc["amount"],
+                       client_txn_id=doc.get("client_txn_id"),
+                       created_at=doc["created_at"],
+                       adjusted_by=doc.get("adjusted_by"), reason=doc.get("reason"))
 
 
 class MongoStore:
-    """Repository over a MongoDB database. Method-for-method with `BankStore`."""
+    """A repository backed by one database inside a MongoDB cluster."""
 
-    def __init__(self, uri: str | None = None, db_name: str | None = None,
-                 client=None, ensure_indexes: bool = True):
-        from pymongo import MongoClient
-
-        uri = uri or config.mongo_uri()
-        if not uri:
-            raise RuntimeError(
-                "MONGODB_URI is not set. Copy .env.example to .env and fill it "
-                "in - see mongo.md, or run `python tools/check_mongo.py`."
-            )
-        # One client per process, shared. pymongo's client owns a connection pool
-        # and is thread-safe; constructing one per request would exhaust M0's
-        # 500-connection limit almost immediately.
-        self._client = client or MongoClient(uri, appName="simple-bank")
-        self.db = self._client[db_name or config.mongo_db_name()]
-
-        # The session for the transaction currently in progress, if any. Thread
-        # local because api.py serves requests on a thread pool and a ClientSession
-        # must not be used from two threads at once.
+    def __init__(self, uri: str, db_name: str, *, timeout_ms: int = 10_000):
+        if not db_name:
+            raise ValueError("a database name is required")
+        self.db_name = db_name
+        # tz_aware so dates come back in UTC, matching the ones models.py creates.
+        self._client = MongoClient(uri, tz_aware=True,
+                                   serverSelectionTimeoutMS=timeout_ms)
+        self._db = self._client[db_name]
+        self._users = self._db["users"]
+        self._accounts = self._db["accounts"]
+        self._transactions = self._db["transactions"]
+        self._counters = self._db["counters"]
+        self._audit = self._db["audit_log"]
+        # The session of the transaction running on this thread, if there is one.
+        # Every read and write inside atomic() must go through it, or it would
+        # happen outside the transaction and could not be rolled back.
         self._local = threading.local()
+        # One transaction at a time per server process. Without this, two requests
+        # handled by the same server could collide in the database and one would
+        # be refused with ConcurrentUpdate; with it, they queue instead. The
+        # transaction is still what protects against other server processes,
+        # which this lock cannot see.
+        self._lock = threading.RLock()
+        self.ensure_indexes()
 
-        if ensure_indexes:
-            self.ensure_indexes()
+    # ---- setup and housekeeping ----
 
-    # ------------------------------------------------------------- setup
-
+    @_guarded
     def ensure_indexes(self) -> None:
-        """Create the indexes that enforce rules. Safe to call on every start.
+        """Create the collections and indexes if they do not exist. Safe to repeat."""
+        existing = set(self._db.list_collection_names())
+        for name in COLLECTIONS:
+            if name not in existing:
+                self._db.create_collection(name)
+        # The UNIQUE constraint on users.email, enforced by the database.
+        self._index(self._users, [("email", ASCENDING)], unique=True,
+                    name="email_unique")
+        self._index(self._accounts, [("user_id", ASCENDING)], name="by_owner")
+        # The idempotency guarantee. Partial, so the many transactions without a
+        # client id do not all collide on a shared null.
+        self._index(
+            self._transactions,
+            [("client_txn_id", ASCENDING)], unique=True, name="client_txn_id_unique",
+            partialFilterExpression={"client_txn_id": {"$type": "string"}})
+        self._index(self._transactions,
+                    [("account_id", ASCENDING), ("_id", DESCENDING)], name="history")
 
-        `create_index` is idempotent, so this belongs in code rather than in
-        something a person clicks once in the Atlas UI - an index that exists on
-        one teammate's cluster and not in the repository is a rule that silently
-        does not apply to everyone else.
+    @staticmethod
+    def _index(collection, keys, **options) -> None:
+        """create_index, tolerating an equivalent index under a different name.
 
-        Two of these are not performance tuning. They are the storage-level
-        versions of business rules that `BankStore` implements in Python.
+        create_index is idempotent only for an exact match. If the same keys
+        already exist under another name, MongoDB raises IndexOptionsConflict
+        (85) and, without this, every MongoStore() against that database would
+        fail in the constructor - so one stale index makes the whole application
+        unusable rather than just untidy.
+
+        That is not hypothetical. An earlier version of this file named these
+        indexes uq_user_email and uq_client_txn, and any database it touched
+        still carries them. The index does the same job whatever it is called,
+        so the right answer is to accept the one already there.
         """
-        # The UNIQUE constraint behind add_user()'s duplicate-email rejection.
-        self._create_index(USERS, "email", unique=True, name="uq_user_email")
-
-        # The idempotency guarantee. `sparse` because most transactions have no
-        # client id, and without it every such document would collide on null.
-        self._create_index(TRANSACTIONS, "client_txn_id",
-                           unique=True, sparse=True, name="uq_client_txn")
-
-        # History is always "this account, newest first" - see
-        # transactions_for_account, which sorts on _id descending. The sort key
-        # must be `_id` and not `txn_id`: the transaction's id IS the document's
-        # `_id`, so there is no `txn_id` field to index and an index naming one
-        # would be built, reported by Atlas, and never used by any query.
-        self._create_index(TRANSACTIONS, [("account_id", 1), ("_id", -1)],
-                           name="ix_txn_account_recent")
-        self._create_index(ACCOUNTS, "user_id", name="ix_account_user")
-
-    def _create_index(self, collection: str, keys, **options) -> None:
-        """create_index, tolerant of an equivalent index someone already made.
-
-        `create_index` is idempotent only for an *exact* match. If the same keys
-        already exist under a different name - because a teammate made one by
-        hand in the Atlas UI, or an earlier version of this file used a different
-        name - the server raises IndexOptionsConflict (85) and, without this,
-        every `MongoStore(...)` against that database would fail at construction.
-
-        That is a real scenario on a shared cluster rather than a hypothetical
-        one, and the right response is to accept the index that is already doing
-        the job. A genuine conflict - same name, different keys (86) - is not
-        papered over: the old index is dropped and replaced, because there the
-        two definitions actually disagree and ours is the one in version control.
-        """
-        from pymongo.errors import DuplicateKeyError, OperationFailure
+        from pymongo.errors import OperationFailure
 
         try:
-            self.db[collection].create_index(keys, **options)
-        except DuplicateKeyError as exc:
-            # A unique index cannot be built because the data already violates
-            # it. Failing loudly is right - the alternative is a server that
-            # starts up believing a rule is enforced when it is not - but the
-            # server's own message does not say what to do about it.
-            detail = exc.details.get("errmsg", exc) if exc.details else exc
-            raise RuntimeError(
-                f"Cannot create the unique index {options.get('name')!r} on "
-                f"{self.db.name}.{collection}: the existing data already "
-                f"breaks it.\n"
-                f"  {detail}\n"
-                "  This usually means the collection holds rows written by an "
-                "older schema.\n"
-                "  Re-seed it:  python tools/seed_mongo.py --reset"
-            ) from None
+            collection.create_index(keys, **options)
         except OperationFailure as exc:
-            if exc.code == 85:      # IndexOptionsConflict: same keys, other name
-                return
-            if exc.code == 86:      # IndexKeySpecsConflict: same name, other keys
-                self.db[collection].drop_index(options["name"])
-                self.db[collection].create_index(keys, **options)
-                return
-            raise
+            if exc.code != 85:          # IndexOptionsConflict
+                raise
 
-    def drop_everything(self) -> None:
-        """Wipe the database. Used by the seeder's --reset and by nothing else."""
-        for name in (USERS, ACCOUNTS, TRANSACTIONS, COUNTERS):
-            self.db.drop_collection(name)
+    @_guarded
+    def ping(self) -> None:
+        self._client.admin.command("ping")
 
-    # -------------------------------------------------------- transactions
+    @_guarded
+    def is_empty(self) -> bool:
+        return self._users.count_documents({}, limit=1) == 0
+
+    @_guarded
+    def reset(self) -> None:
+        """Delete every collection this store owns, then rebuild the indexes.
+
+        This destroys all data in the database. It exists for server.py --reset
+        and for the integration tests, which only ever use simple_bank_test.
+        """
+        for name in COLLECTIONS:
+            self._db.drop_collection(name)
+        self.ensure_indexes()
+
+    def close(self) -> None:
+        self._client.close()
+
+    # ---- units of work ----
 
     @property
     def _session(self):
         return getattr(self._local, "session", None)
 
-    @contextlib.contextmanager
-    def transaction(self):
-        """Run the enclosed writes as one MongoDB transaction.
+    @contextmanager
+    def atomic(self):
+        """Run a group of reads and writes as one multi-document transaction.
 
-        Re-entrant: `transfer()` calls the same guarded internals as `withdraw`,
-        and nesting `start_transaction` raises. The inner `with` therefore joins
-        the outer one rather than opening a second, which mirrors why the service
-        layer uses an RLock rather than a Lock.
+        Everything inside commits together or rolls back together, and MongoDB
+        refuses a transaction that would overwrite a change another one made
+        after it started. That second property is what stops two withdrawals on
+        different servers from spending the same money.
+
+        Nested calls join the transaction already open on this thread.
         """
         if self._session is not None:
-            yield self._session          # already inside one; join it
+            yield
             return
-
-        with self._client.start_session() as session:
-            self._local.session = session
+        with self._lock:
             try:
-                with session.start_transaction():
-                    yield session
-            finally:
-                self._local.session = None
-
-    def _kw(self) -> dict:
-        """Pass the active session to a pymongo call, when there is one.
-
-        Every read and write goes through this. A write that forgets it silently
-        lands outside the transaction and is not rolled back with the rest, which
-        is the single easiest way to break atomicity here.
-        """
-        session = self._session
-        return {"session": session} if session is not None else {}
+                with self._client.start_session() as session:
+                    with session.start_transaction():
+                        self._local.session = session
+                        try:
+                            yield
+                        finally:
+                            self._local.session = None
+            except PyMongoError as exc:
+                translated = _translate(exc)
+                if translated is exc:
+                    raise
+                raise translated from exc
 
     def _next_id(self, name: str) -> int:
-        """Allocate an id. The `counters` collection is AUTO_INCREMENT.
+        """The next integer id for a collection, like AUTO_INCREMENT.
 
-        `find_one_and_update` with `$inc` and `upsert` is one atomic server-side
-        operation, so two processes allocating at the same moment get different
-        numbers. Reading a max and adding one would not be safe.
+        Deliberately outside any transaction. Otherwise every request that creates
+        a record would queue behind every other one on this single counter
+        document, including requests for unrelated accounts. The cost is the same
+        as in SQL: a request that rolls back leaves a gap in the numbering, which
+        is harmless, where reusing a number would not be.
         """
-        doc = self.db[COUNTERS].find_one_and_update(
-            {"_id": name},
-            {"$inc": {"seq": 1}},
-            upsert=True,
-            return_document=True,          # ReturnDocument.AFTER
-            **self._kw(),
-        )
-        return int(doc["seq"])
+        doc = self._counters.find_one_and_update(
+            {"_id": name}, {"$inc": {"seq": 1}}, upsert=True,
+            return_document=ReturnDocument.AFTER)
+        return doc["seq"]
 
-    # -------------------------------------------------------------- users
+    # ---- users ----
 
-    def _user_from_doc(self, doc: dict) -> User:
-        user = User(
-            user_id=doc["_id"],
-            name=doc["name"],
-            email=doc["email"],
-            role=doc.get("role", "CUSTOMER"),
-            password_hash=doc.get("password_hash"),
-        )
-        user.created_at = _utc(doc.get("created_at"))
-        return user
-
+    @_guarded
     def add_user(self, name: str, email: str, role: str = "CUSTOMER",
                  password_hash: str | None = None) -> User:
-        """Insert a user, rejecting a duplicate email.
-
-        The rejection comes from the unique index rather than from a lookup here.
-        A check-then-insert would leave a window in which two requests both find
-        the address free, and the index closes it.
-        """
-        from pymongo.errors import DuplicateKeyError
-
         key = email.strip().lower()
-        user = User(user_id=self._next_id("user_id"), name=name, email=key,
-                    role=role, password_hash=password_hash)
+        if self._users.find_one({"email": key}, {"_id": 1}, session=self._session):
+            raise EmailAlreadyUsed(f"email already registered: {key}")
+        user = User(user_id=self._next_id("users"), name=name, email=key, role=role,
+                    password_hash=password_hash)
         try:
-            self.db[USERS].insert_one({
-                "_id": user.user_id,
-                "name": user.name,
-                "email": user.email,
-                "role": user.role,
-                "password_hash": user.password_hash,
+            self._users.insert_one({
+                "_id": user.user_id, "name": user.name, "email": user.email,
+                "role": user.role, "password_hash": user.password_hash,
                 "created_at": user.created_at,
-            }, **self._kw())
+            }, session=self._session)
         except DuplicateKeyError:
+            # Two registrations raced past the check above. The index settles it.
             raise EmailAlreadyUsed(f"email already registered: {key}") from None
         return user
 
+    @_guarded
     def get_user(self, user_id: int) -> User:
-        doc = self.db[USERS].find_one({"_id": user_id}, **self._kw())
+        doc = self._users.find_one({"_id": user_id}, session=self._session)
         if doc is None:
             raise UserNotFound(f"no user with id {user_id}")
-        return self._user_from_doc(doc)
+        return _user_from(doc)
 
+    @_guarded
     def find_user_by_email(self, email: str) -> User | None:
-        doc = self.db[USERS].find_one({"email": email.strip().lower()}, **self._kw())
-        return self._user_from_doc(doc) if doc else None
+        doc = self._users.find_one({"email": email.strip().lower()},
+                                   session=self._session)
+        return _user_from(doc) if doc is not None else None
 
+    @_guarded
     def all_users(self) -> list[User]:
-        rows = self.db[USERS].find(**self._kw()).sort("_id", 1)
-        return [self._user_from_doc(d) for d in rows]
+        cursor = self._users.find({}, session=self._session).sort("_id", ASCENDING)
+        return [_user_from(doc) for doc in cursor]
 
-    # ----------------------------------------------------------- accounts
+    # ---- accounts ----
 
-    def _account_from_doc(self, doc: dict) -> Account:
-        """Rebuild the right Account subclass from a document.
-
-        Goes through `make_account`, so `ACCOUNT_TYPES` stays the single place
-        that maps a type string to a class and a new account type needs no edit
-        here. The balance is assigned to `_balance` directly and deliberately:
-        `balance` is a read-only property with no setter, and reconstructing a
-        stored row is not the same act as applying a transaction to it.
-        """
-        account = make_account(doc["account_type"], user_id=doc["user_id"])
-        account.account_id = doc["_id"]
-        account._balance = int(doc["balance"])
-        account.status = doc.get("status", ACTIVE)
-        account.created_at = _utc(doc.get("created_at"))
-        return account
-
-    def _account_doc(self, account: Account) -> dict:
-        return {
-            "_id": account.account_id,
-            "user_id": account.user_id,
-            "account_type": account.account_type,
-            "balance": int(account.balance),
-            "status": account.status,
-            "created_at": account.created_at,
-        }
-
+    @_guarded
     def add_account(self, account: Account) -> Account:
         if account.account_id is None:
-            account.account_id = self._next_id("account_id")
-        self.db[ACCOUNTS].insert_one(self._account_doc(account), **self._kw())
+            account.account_id = self._next_id("accounts")
+        self._accounts.insert_one({
+            "_id": account.account_id, "user_id": account.user_id,
+            "account_type": account.account_type, "balance": account.balance,
+            "status": account.status, "created_at": account.created_at,
+        }, session=self._session)
         return account
 
+    @_guarded
     def get_account(self, account_id: int) -> Account:
-        doc = self.db[ACCOUNTS].find_one({"_id": account_id}, **self._kw())
+        doc = self._accounts.find_one({"_id": account_id}, session=self._session)
         if doc is None:
             raise AccountNotFound(f"no account with id {account_id}")
-        return self._account_from_doc(doc)
+        return _account_from(doc)
 
-    def save_account(self, account: Account) -> Account:
-        """Write back an account the service layer just changed.
-
-        This method is why `BankStore` grew a no-op version of it. There,
-        `get_account` returns the object in the dict and mutating it *is* the
-        save. Here it returns a fresh object built from a document, so without
-        this call a deposit would update a balance in memory and nothing on the
-        server - and every test would still pass, because the in-memory store
-        does not need it.
-        """
-        self.db[ACCOUNTS].update_one(
-            {"_id": account.account_id},
-            {"$set": {"balance": int(account.balance), "status": account.status}},
-            **self._kw(),
-        )
-        return account
-
+    @_guarded
     def accounts_for_user(self, user_id: int) -> list[Account]:
-        rows = self.db[ACCOUNTS].find({"user_id": user_id}, **self._kw()).sort("_id", 1)
-        return [self._account_from_doc(d) for d in rows]
+        cursor = self._accounts.find({"user_id": user_id},
+                                     session=self._session).sort("_id", ASCENDING)
+        return [_account_from(doc) for doc in cursor]
 
+    @_guarded
     def all_accounts(self) -> list[Account]:
-        rows = self.db[ACCOUNTS].find(**self._kw()).sort("_id", 1)
-        return [self._account_from_doc(d) for d in rows]
+        cursor = self._accounts.find({}, session=self._session).sort("_id", ASCENDING)
+        return [_account_from(doc) for doc in cursor]
 
-    # ------------------------------------------------------- transactions
+    @_guarded
+    def save_balance(self, account: Account) -> None:
+        """Write back a balance changed by Account._apply.
 
-    def _txn_from_doc(self, doc: dict) -> Transaction:
-        return Transaction(
-            txn_id=doc["_id"],
-            account_id=doc["account_id"],
-            txn_type=doc["txn_type"],
-            amount=int(doc["amount"]),
-            client_txn_id=doc.get("client_txn_id"),
-            created_at=_utc(doc.get("created_at")),
-            adjusted_by=doc.get("adjusted_by"),
-            reason=doc.get("reason"),
-        )
-
-    def next_txn_id(self) -> int:
-        return self._next_id("txn_id")
-
-    def client_txn_id_seen(self, client_txn_id: str | None) -> bool:
-        """Fast path for the idempotency guard.
-
-        This is a lookup, so between it and the insert there is a window. That is
-        acceptable because it is not the actual protection: the unique index on
-        `client_txn_id` is, and `add_transaction` turns its violation into the
-        same `DuplicateTransaction` this would have raised. This exists to give
-        the common case a clean error instead of an index violation.
+        Inside atomic(), MongoDB rejects this write if another transaction changed
+        the same account after this one read it, which surfaces as ConcurrentUpdate.
         """
+        result = self._accounts.update_one(
+            {"_id": account.account_id}, {"$set": {"balance": account.balance}},
+            session=self._session)
+        if result.matched_count == 0:
+            raise AccountNotFound(f"no account with id {account.account_id}")
+
+    @_guarded
+    def save_status(self, account: Account) -> None:
+        result = self._accounts.update_one(
+            {"_id": account.account_id}, {"$set": {"status": account.status}},
+            session=self._session)
+        if result.matched_count == 0:
+            raise AccountNotFound(f"no account with id {account.account_id}")
+
+    # ---- transactions ----
+
+    @_guarded
+    def next_txn_id(self) -> int:
+        return self._next_id("transactions")
+
+    @_guarded
+    def client_txn_id_seen(self, client_txn_id: str | None) -> bool:
         if client_txn_id is None:
             return False
-        return self.db[TRANSACTIONS].find_one(
-            {"client_txn_id": client_txn_id}, {"_id": 1}, **self._kw()) is not None
+        return self._transactions.find_one(
+            {"client_txn_id": client_txn_id}, {"_id": 1},
+            session=self._session) is not None
 
+    @_guarded
     def add_transaction(self, txn: Transaction) -> Transaction:
-        from pymongo.errors import DuplicateKeyError
-
         doc = {
-            "_id": txn.txn_id,
-            "account_id": txn.account_id,
-            "txn_type": txn.txn_type,
-            "amount": int(txn.amount),
-            "created_at": txn.created_at,
+            "_id": txn.txn_id, "account_id": txn.account_id,
+            "txn_type": txn.txn_type, "amount": txn.amount,
+            "client_txn_id": txn.client_txn_id, "created_at": txn.created_at,
         }
-        # Omitted rather than stored as null, so the sparse unique index does not
-        # have to consider these documents at all.
-        if txn.client_txn_id is not None:
-            doc["client_txn_id"] = txn.client_txn_id
         if txn.adjusted_by is not None:
             doc["adjusted_by"] = txn.adjusted_by
             doc["reason"] = txn.reason
-
         try:
-            self.db[TRANSACTIONS].insert_one(doc, **self._kw())
-        except DuplicateKeyError:
-            # The index caught a replay that slipped past client_txn_id_seen.
-            raise DuplicateTransaction(
-                f"transaction {txn.client_txn_id} has already been submitted"
-            ) from None
+            self._transactions.insert_one(doc, session=self._session)
+        except DuplicateKeyError as exc:
+            if "client_txn_id" in (exc.details or {}).get("keyPattern", {}):
+                raise DuplicateTransaction(
+                    f"transaction {txn.client_txn_id} has already been submitted"
+                ) from None
+            raise
         return txn
 
+    @_guarded
     def transactions_for_account(self, account_id: int,
                                  txn_type: str | None = None) -> list[Transaction]:
-        query: dict = {"account_id": account_id}
+        query = {"account_id": account_id}
         if txn_type:
             query["txn_type"] = txn_type
-        rows = self.db[TRANSACTIONS].find(query, **self._kw()).sort("_id", -1)
-        return [self._txn_from_doc(d) for d in rows]
+        cursor = self._transactions.find(query, session=self._session).sort(
+            "_id", DESCENDING)
+        return [_transaction_from(doc) for doc in cursor]
 
+    @_guarded
     def ledger_sum(self, account_id: int) -> int:
-        """Reconciliation, in cents, computed by the server.
-
-        The credit/debit split is expressed with `$cond` over `CREDIT_TYPES`
-        rather than hardcoding the type names, so `models.py` stays the single
-        source of truth for which types add and which subtract.
-
-        Returns an int. The amounts are BSON 64-bit integers and `$sum` over them
-        is exact - which is the entire reason money is stored as cents rather
-        than as the Decimal128 the older planning document specified.
-        """
+        """Money in minus money out for one account, in cents, summed by the database."""
         pipeline = [
             {"$match": {"account_id": account_id}},
-            {"$group": {
-                "_id": None,
-                "total": {"$sum": {
-                    "$cond": [
-                        {"$in": ["$txn_type", sorted(CREDIT_TYPES)]},
-                        "$amount",
-                        {"$multiply": ["$amount", -1]},
-                    ]
-                }},
-            }},
+            {"$group": {"_id": None, "total": {"$sum": {"$cond": [
+                {"$in": ["$txn_type", sorted(CREDIT_TYPES)]},
+                "$amount",
+                {"$multiply": ["$amount", -1]},
+            ]}}}},
         ]
-        result = list(self.db[TRANSACTIONS].aggregate(pipeline, **self._kw()))
+        result = list(self._transactions.aggregate(pipeline, session=self._session))
         return int(result[0]["total"]) if result else 0
 
-    # ------------------------------------------------------------- admin
+    # ---- audit log ----
 
-    def close(self) -> None:
-        self._client.close()
+    @_guarded
+    def add_audit_entry(self, actor_user_id: int, action: str,
+                        account_id: int | None, reason: str) -> None:
+        self._audit.insert_one({
+            "_id": self._next_id("audit_log"), "actor_user_id": actor_user_id,
+            "action": action, "account_id": account_id, "reason": reason,
+            "created_at": datetime.now(timezone.utc),
+        }, session=self._session)
 
-    def stats(self) -> dict[str, int]:
-        """Row counts, for the server's startup banner."""
-        return {
-            "users": self.db[USERS].count_documents({}),
-            "accounts": self.db[ACCOUNTS].count_documents({}),
-            "transactions": self.db[TRANSACTIONS].count_documents({}),
-        }
+    @_guarded
+    def audit_entries(self) -> list[tuple]:
+        """Oldest first, in the same tuple shape as the in-memory store."""
+        cursor = self._audit.find({}, session=self._session).sort("_id", ASCENDING)
+        return [(doc["actor_user_id"], doc["action"], doc["account_id"], doc["reason"])
+                for doc in cursor]

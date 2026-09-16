@@ -53,8 +53,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .errors import (
-    AccountNotActive, AccountNotFound, BankError, DuplicateTransaction,
-    EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized, UserNotFound,
+    AccountNotActive, AccountNotFound, BankError, ConcurrentUpdate, DuplicateTransaction,
+    EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized,
+    StorageUnavailable, UserNotFound,
 )
 from .security import TOKEN_TTL_SECONDS, issue_token, new_secret, read_token
 from .serializers import account_json, page_json, transaction_json, user_json
@@ -86,6 +87,13 @@ ERROR_STATUS = [
     (AccountNotActive, 409),
     (DuplicateTransaction, 409),
     (EmailAlreadyUsed, 409),
+    # Another request changed the same account first, and this one was rolled
+    # back whole. Retrying is safe.
+    (ConcurrentUpdate, 409),
+
+    # 503 Service Unavailable - the request was fine, but the database could not
+    # be reached. Nothing was changed, so the caller can try again shortly.
+    (StorageUnavailable, 503),
 
     # Anything else from the domain that has not been given a status yet.
     (BankError, 400),

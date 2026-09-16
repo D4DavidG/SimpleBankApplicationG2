@@ -43,8 +43,8 @@ Requires Python 3.10 or newer (the code uses `str | None` type syntax).
 
 The backend still imports nothing but the standard library, and
 `python server.py` still runs on a clean machine with nothing installed.
-`requirements.txt` exists for the database phase only: `--mongo` needs pymongo
-and imports it inside that branch. See [mongo.md](mongo.md).
+`requirements.txt` exists for the database phase only: the MongoDB store imports
+pymongo, and it is imported only when `.env` asks for it. See [mongo.md](mongo.md).
 
 The brief's architecture diagram is:
 
@@ -179,9 +179,8 @@ table is the index.
 | [test_api.py](test_api.py) | 59 tests of the controller: routing, auth, error mapping, serialization, the seed, and one end-to-end pass over a real socket. |
 | [tools/export_postman.py](tools/export_postman.py) | Generates `postman_collection.json` **from the live route table**, so it cannot drift from the code. |
 | [bank/config.py](bank/config.py) | Reads `.env` into the environment. Thirty lines of standard library; a real environment variable always wins over the file. |
-| [bank/mongo_store.py](bank/mongo_store.py) | **The MongoDB repository.** Same methods as `store.py`, backed by Atlas. Ids from a `counters` collection, email uniqueness and idempotency from unique indexes, `transfer()` inside a real transaction. Imported only when `--mongo` is passed, so pymongo stays optional. |
-| [tools/seed_mongo.py](tools/seed_mongo.py) | Loads the demo roster into MongoDB by replaying it through the real service methods. **Replaces section 5 of `seed_data_bank_app.md`**, which writes `Decimal128` and predates integer cents. |
-| [test_mongo.py](test_mongo.py) | 21 tests against a live cluster, skipped when `MONGODB_URI` is unset. Re-reads every balance from the database rather than trusting the returned object, and forces a mid-transfer failure to prove both legs roll back. |
+| [bank/mongo_store.py](bank/mongo_store.py) | **The MongoDB repository.** Same methods as `store.py`, backed by Atlas. Ids from a `counters` collection, email uniqueness and idempotency from unique indexes, every change inside `atomic()` — a real multi-document transaction. Driver errors are translated to domain errors, so `api.py` answers 503 and 409 without importing pymongo. Imported only when `MONGODB_URI` is set, so pymongo stays optional. |
+| [test_mongo.py](test_mongo.py) | 12 tests against a live cluster, opt-in with `MONGO_TESTS=1`. Always uses `simple_bank_test`, whatever `MONGODB_DB` says. Re-reads every balance from the database rather than trusting the returned object, and runs eight withdrawals across two connections to prove an account cannot be overdrawn. |
 | [tools/check_mongo.py](tools/check_mongo.py) | Seven checks that this machine can use the Atlas cluster, ending with a real multi-document transaction. Run it after following `mongo.md`. |
 | [postman_collection.json](postman_collection.json) | 28 requests in 6 folders, including a "Failure cases" folder. Generated — edit the tool, not this. |
 | [mongo.md](mongo.md) | **MongoDB Atlas setup.** What each of us does to get a working connection, the decisions already made, and the reasoning. Start here for the database phase. |
@@ -648,8 +647,8 @@ during integration week instead of the afternoon it was introduced.
 
 | Not done | Why, and what it will touch |
 | --- | --- |
-| **A database** | **Done for MongoDB.** `python server.py --mongo` serves from Atlas and the data survives a restart; in-memory remains the default. See [mongo.md](mongo.md). What is still open is only which database is *graded* — see section 14. |
-| **A `seed.sql` for MySQL** | Written in `seed_data_bank_app.md` §3–4 but not extracted, and its amounts are in `DECIMAL`. If MySQL is chosen, they become `BIGINT` cents, the same conversion `tools/seed_mongo.py` already embodies. |
+| **A database** | **Done for MongoDB.** With `MONGODB_URI` and `MONGODB_DB` in `.env`, `python server.py` serves from Atlas and the data survives a restart; `--memory` is the way back. See [mongo.md](mongo.md). What is still open is only which database is *graded* — see section 14. |
+| **A `seed.sql` for MySQL** | Written in `seed_data_bank_app.md` §3–4 but not extracted, and its amounts are in `DECIMAL`. If MySQL is chosen they become `BIGINT` cents — and §5, the MongoDB version, must not be run at all: it writes `Decimal128`, which this codebase refuses. |
 | **A frontend** | Today's scope was the backend. The API is CORS-enabled for a dev server on another port, and money is serialized as integer cents, so the client divides by 100 to display and never has to undo a float. |
 | **httpOnly cookie sessions** | Tokens currently travel in an `Authorization` header, which a React client stores itself. A token in `localStorage` is readable by any injected script, so the cookie version is the better end state — it needs a real CSRF story and an exact-origin CORS policy, not `*`. |
 | **Refresh tokens** | One hour, then log in again. A refresh lifecycle and a session-timeout warning with an extend option (WCAG 2.2.1) belong with the frontend work. |
@@ -679,14 +678,16 @@ These block the next phase, not this one.
    the code and gives no atomicity, silently).
 
    **The MongoDB half of this is now built and settled.** We are on Atlas; a
-   free M0 cluster *is* a three-node replica set, so `transfer()` is atomic, and
-   `test_mongo.py` proves it by forcing a failure between the two legs and
-   asserting both roll back. See [mongo.md](mongo.md).
+   free M0 cluster *is* a three-node replica set, so every change runs inside a
+   real transaction, and `test_mongo.py` proves it against the live cluster. See
+   [mongo.md](mongo.md).
 
    What remains open is only which database is **graded**. `store.py` is why that
-   answer costs us one class rather than the application: `MongoStore` implements
-   the same method names, and `services.py`, `api.py`, `models.py` and
-   `serializers.py` did not change when it landed.
+   answer costs us one class rather than the application: `MongoStore` answers the
+   same method names, and `api.py`, `models.py` and `serializers.py` did not
+   change when it landed. The repository interface did grow two members —
+   `atomic()` and `save_balance()`/`save_status()` — which is the honest version
+   of the claim and is written up in [mongo.md](mongo.md).
 2. **Python or Spring Boot?** The brief allows both; the syllabus teaches Python.
 3. **Is authentication core scope now?** The brief lists it as a bonus; the hiring
    manager asked for admin and user logins. This repo treats it as core.
