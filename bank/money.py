@@ -82,7 +82,11 @@ def parse_amount(raw) -> int:
     """
     from .errors import InvalidAmount
 
-    ensure_cents(raw)
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise InvalidAmount(
+            "amount must be a whole number of cents given as a JSON integer, "
+            "e.g. 2500 for 25.00"
+        )    
     if raw <= 0:
         raise InvalidAmount("amount must be greater than zero")
     if raw > MAX_TXN_AMOUNT:
