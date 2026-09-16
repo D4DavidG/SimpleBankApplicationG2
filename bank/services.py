@@ -15,7 +15,8 @@ Those are correct and incomplete. The rules actually enforced below:
     3. Frozen accounts reject all customer-initiated movement.
     4. Every balance change writes exactly one ledger entry, always.
     5. A resubmitted client transaction id is rejected rather than applied twice.
-    6. A user may only touch their own accounts. Admins may read any.
+    6. A user may only touch their own accounts. Admins may read any account,
+       but may not move money in one: that is what adjust() is for.
     7. Admins adjust by posting a ledger entry with a reason. Never by setting
        a balance.
 
@@ -165,6 +166,20 @@ class BankService:
             raise AccountNotFound(f"no account with id {account_id}")
         return account
 
+    def get_account_to_move_money(self, account_id: int, actor: User) -> Account:
+        """Fetch an account the actor may move money into or out of.
+
+        Ownership only, and an admin is not an exception. Reading any account is
+        a normal admin power; moving a customer's money through the ordinary
+        customer route is not, because it leaves no record of who did it. An
+        admin who has to change a balance uses adjust(), which demands a written
+        reason and writes an audit row.
+        """
+        account = self.store.get_account(account_id)
+        if account.user_id != actor.user_id:
+            raise AccountNotFound(f"no account with id {account_id}")
+        return account
+
     def my_accounts(self, actor: User) -> list[Account]:
         return self.store.accounts_for_user(actor.user_id)
 
@@ -178,7 +193,7 @@ class BankService:
         with self._lock:
             # Ownership first: a caller who may not see this account must not be
             # able to learn from the error whether it is frozen or does not exist.
-            account = self.get_account_for(account_id, actor)
+            account = self.get_account_to_move_money(account_id, actor)
             self._guard_idempotency(client_txn_id)
             if not account.is_active:
                 raise AccountNotActive(f"account {account_id} is {account.status.lower()}")
@@ -191,7 +206,7 @@ class BankService:
                  client_txn_id: str | None = None) -> Transaction:
         amount = parse_amount(amount)
         with self._lock:
-            account = self.get_account_for(account_id, actor)
+            account = self.get_account_to_move_money(account_id, actor)
             self._guard_idempotency(client_txn_id)
             if not account.is_active:
                 raise AccountNotActive(f"account {account_id} is {account.status.lower()}")
@@ -223,7 +238,7 @@ class BankService:
         if from_id == to_id:
             raise ValueError("cannot transfer to the same account")
         with self._lock:
-            source = self.get_account_for(from_id, actor)   # ownership enforced
+            source = self.get_account_to_move_money(from_id, actor)  # owner only
             target = self.store.get_account(to_id)          # recipient need not be yours
             self._guard_idempotency(client_txn_id)
             if not source.is_active or not target.is_active:
@@ -287,7 +302,8 @@ class BankService:
             delta = amount if direction == "CREDIT" else -amount
             account._apply(delta)  # raises InsufficientFunds if it would go negative
             txn = self._post(account_id, DEPOSIT if direction == "CREDIT" else WITHDRAWAL,
-                             amount, None)
+                             amount, None, adjusted_by=actor.user_id,
+                             reason=reason.strip())
             self._log(actor, f"ADJUST_{direction}", account_id, reason)
             return txn
 
@@ -339,9 +355,14 @@ class BankService:
     # -------------------------------------------------------------- internals
 
     def _post(self, account_id: int, txn_type: str, amount: int,
-              client_txn_id: str | None) -> Transaction:
+              client_txn_id: str | None, adjusted_by: int | None = None,
+              reason: str | None = None) -> Transaction:
         """Write the ledger entry. Called immediately after every balance change,
-        with no branch in between that could skip it."""
+        with no branch in between that could skip it.
+
+        adjusted_by and reason are set only by adjust(), which is what makes an
+        admin correction distinguishable from a customer's own deposit.
+        """
         return self.store.add_transaction(
             Transaction(
                 txn_id=self.store.next_txn_id(),
@@ -349,6 +370,8 @@ class BankService:
                 txn_type=txn_type,
                 amount=amount,
                 client_txn_id=client_txn_id,
+                adjusted_by=adjusted_by,
+                reason=reason,
             )
         )
 

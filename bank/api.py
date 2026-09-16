@@ -254,7 +254,7 @@ class BankAPI:
                 import traceback
                 traceback.print_exc()
                 return 500, {"error": "internal server error"}
-            return status, {"error": str(exc)}
+            return status, {"error": self._client_message(exc)}
 
     def _match(self, method: str, path: str) -> tuple[Route, dict]:
         """Find the route, distinguishing 404 from 405.
@@ -321,6 +321,33 @@ class BankAPI:
         if not isinstance(parsed, dict):
             raise ApiError(400, "request body must be a JSON object")
         return parsed
+
+    @staticmethod
+    def _int_field(value, key: str) -> int:
+        """A body field that must be a whole number, or a 400 naming the field.
+
+        Without this, int(["x"]) raises a TypeError whose message is Python's own
+        wording about argument types, which describes our internals rather than
+        the caller's mistake.
+        """
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            raise ApiError(400, f"'{key}' must be a number")
+        try:
+            return int(value)
+        except ValueError:
+            raise ApiError(400, f"'{key}' must be a number") from None
+
+    @staticmethod
+    def _client_message(exc: Exception) -> str:
+        """What the caller is told about a matched exception.
+
+        Domain errors and ValueErrors carry messages written for a caller. A
+        TypeError does not: its text is Python explaining itself to a developer,
+        so it is replaced with something the caller can act on.
+        """
+        if isinstance(exc, (BankError, ValueError)):
+            return str(exc)
+        return "invalid request"
 
     @staticmethod
     def _status_for(exc: Exception) -> int | None:
@@ -414,10 +441,12 @@ class BankAPI:
         """
         owner = request.actor
         requested_owner = request.optional("userId")
-        if requested_owner is not None and int(requested_owner) != request.actor.user_id:
-            if not request.actor.is_admin:
-                raise ApiError(403, "cannot open an account for another user")
-            owner = self.service.store.get_user(int(requested_owner))
+        if requested_owner is not None:
+            requested_owner = self._int_field(requested_owner, "userId")
+            if requested_owner != request.actor.user_id:
+                if not request.actor.is_admin:
+                    raise ApiError(403, "cannot open an account for another user")
+                owner = self.service.store.get_user(requested_owner)
 
         account = self.service.open_account(
             owner=owner,
@@ -502,17 +531,18 @@ class BankAPI:
         that does not exist.
         """
         out, inn = self.service.transfer(
-            from_id=int(request.require("fromAccountId")),
-            to_id=int(request.require("toAccountId")),
+            from_id=self._int_field(request.require("fromAccountId"), "fromAccountId"),
+            to_id=self._int_field(request.require("toAccountId"), "toAccountId"),
             amount=request.require("amount"),
             actor=request.actor,
             client_txn_id=request.optional("clientTxnId"),
         )
         source = self.service.get_account_for(out.account_id, request.actor)
+        owner = self.service.store.get_user(source.user_id)
         return 201, {
             "debit": transaction_json(out),
             "credit": transaction_json(inn),
-            "account": account_json(source, request.actor),
+            "account": account_json(source, owner),
         }
 
     def _movement_response(self, txn, request: Request) -> tuple[int, dict]:
@@ -524,9 +554,12 @@ class BankAPI:
         moment two tabs are open. One request, one authoritative balance back.
         """
         account = self.service.get_account_for(txn.account_id, request.actor)
+        # The owner, looked up, rather than the caller. An admin acting on a
+        # customer's account would otherwise see their own name as userName.
+        owner = self.service.store.get_user(account.user_id)
         return 201, {
             "transaction": transaction_json(txn),
-            "account": account_json(account, request.actor),
+            "account": account_json(account, owner),
         }
 
     # ----------------------------------------------------------------- admin
@@ -550,9 +583,13 @@ class BankAPI:
         """Freeze or unfreeze. `frozen` is explicit rather than a toggle, so
         retrying a request that may or may not have landed is safe."""
         frozen = request.optional("frozen", True)
+        # Only a real true or false. bool("false") is True, so a client sending
+        # the word in quotes would freeze an account it meant to release.
+        if not isinstance(frozen, bool):
+            raise ApiError(400, "'frozen' must be true or false")
         account = self.service.set_frozen(
             account_id=request.params["id"],
-            frozen=bool(frozen),
+            frozen=frozen,
             reason=request.require("reason"),
             actor=request.actor,
         )
