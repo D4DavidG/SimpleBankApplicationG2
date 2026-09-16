@@ -13,6 +13,10 @@ they wipe it before every test. Never point them anywhere else.
 prove that MongoStore keeps the same promises once the data lives in a database:
 that it is really saved, that the unique indexes refuse duplicates, and that two
 separate connections cannot spend the same money.
+
+`MongoConnectionTest` below is a plain sanity check against the Atlas cluster
+itself (can we connect at all, is the sample dataset there) before the heavier
+`MongoStoreTest` suite runs.
 """
 import os
 import threading
@@ -27,6 +31,8 @@ ENABLED = os.environ.get("MONGO_TESTS") == "1" and bool(os.environ.get("MONGODB_
 if ENABLED:
     import json
 
+    from pymongo import MongoClient
+
     from bank import BankAPI, BankService
     from bank.errors import (
         AccountNotActive, ConcurrentUpdate, DuplicateTransaction, EmailAlreadyUsed,
@@ -36,6 +42,27 @@ if ENABLED:
     from bank.security import hash_password, issue_token
 
     HASH = hash_password("Password123!", rounds=1_000)
+
+
+@unittest.skipUnless(ENABLED, "set MONGO_TESTS=1, with MONGODB_URI in .env, to run")
+class MongoConnectionTest(unittest.TestCase):
+    """Can we even reach the cluster, before we ask MongoStore to do anything with it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.client = MongoClient(os.environ["MONGODB_URI"], serverSelectionTimeoutMS=10_000)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client.close()
+
+    def test_connection_is_available(self):
+        self.assertEqual(self.client.admin.command("ping")["ok"], 1.0)
+
+    def test_sample_analytics_accounts_are_available(self):
+        account = self.client.sample_analytics.accounts.find_one({"account_id": 371138})
+        self.assertIsNotNone(account)
+        self.assertEqual(account["account_id"], 371138)
 
 
 @unittest.skipUnless(ENABLED, "set MONGO_TESTS=1, with MONGODB_URI in .env, to run")
