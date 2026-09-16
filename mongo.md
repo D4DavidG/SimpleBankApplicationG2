@@ -244,12 +244,19 @@ one and it never contains a real password. Check before every commit: if
 `git status` ever lists `.env`, stop and work out why the ignore rule stopped
 matching.
 
-> **Heads up for whoever writes the store:** nothing in this repo reads `.env`
-> yet. `security.py` reads `os.environ` directly, so `.env` is currently
-> documentation rather than configuration. `tools/check_mongo.py` parses it
-> itself so that this tutorial is true today; the real loader is a decision for
-> the store work, and it is about fifteen lines of standard library — we do not
-> need `python-dotenv` for `KEY=value`.
+`.env` is read by [`bank/config.py`](bank/config.py), which `server.py`,
+`tools/seed_mongo.py`, `tools/check_mongo.py` and `test_mongo.py` all call. It is
+thirty lines of standard library; `KEY=value` with comments did not justify a
+dependency.
+
+A real environment variable still wins over the file, which is the conventional
+direction and means
+
+```bash
+MONGODB_DB=simple_bank_test python server.py --mongo
+```
+
+overrides it without editing anything.
 
 ---
 
@@ -296,7 +303,7 @@ are pointed at.
 | --- | --- | --- |
 | `simple_bank` | The demo, and the frontend | One known-good dataset everyone shows |
 | `simple_bank_<yourname>` | Your day-to-day development | So your reseed does not delete the data someone is demoing |
-| `simple_bank_test` | The test suite | It gets wiped constantly. It must never be a database anyone cares about |
+| `simple_bank_test` | `test_mongo.py` | It gets wiped constantly. The suite refuses to run against any name not ending in `_test`, so it cannot be pointed at the others by accident |
 
 On M0 this costs nothing — the 512 MB is shared across all of them and our entire
 seeded dataset is a few hundred kilobytes. Creating a database in MongoDB is not
@@ -307,33 +314,104 @@ when you deliberately want the shared data.
 
 ---
 
-## How this fits the code
+## Using it: seed, then run
 
-It fits in one file, which was the entire point of writing it the way it is
-written. [`store.py`](bank/store.py) says so in its own docstring:
+Once `python tools/check_mongo.py` passes:
+
+```bash
+python tools/seed_mongo.py        # load the demo roster into your database
+python server.py --mongo          # serve the API from MongoDB
+```
+
+Without `--mongo` the server runs in memory exactly as before, which stays the
+default. That flag is the entire difference.
+
+### Seeding
+
+`tools/seed_mongo.py` **replaces section 5 of `seed_data_bank_app.md`. Do not run
+that one.** It writes `NumberDecimal("2480.00")`, and this codebase moved to
+integer cents after that document was written:
+
+```
+>>> to_cents(Decimal128("2480.00"))
+TypeError: Money must be an int number of cents, e.g. 2500 for 25.00
+```
+
+A database seeded that way looks perfectly correct in the Atlas data explorer and
+cannot be read by the application at all. (`money.py` refuses anything that is
+not an `int` on purpose, so this fails loudly rather than becoming a silent 100x
+error — but it still costs you an evening.)
+
+The script seeds by replaying all 73 transactions through the real
+`BankService.deposit` and `.withdraw`, so balances cannot disagree with their
+ledger: reconciliation is true by construction rather than asserted afterwards.
+It refuses to run against a non-empty database unless you pass `--reset`, and
+`--reset` makes you type the database name.
+
+Seeding is a **setup step, not a startup step**. Mongo keeps what the last run
+left in it, so `server.py --mongo` does not re-seed — it reports what is there
+and tells you how to load the roster if the database is empty.
+
+## How it fits the code
+
+It fits where [`store.py`](bank/store.py) always said it would:
 
 > When MySQL or MongoDB arrives later in the week, this file is the only one that
 > gets rewritten and the business rules in `services.py` do not change at all.
 
-So the work is a `MongoStore` class with the same method names as `BankStore` —
-`add_user`, `get_account`, `add_transaction`, `ledger_sum`, and the rest — and
-one changed line in `server.py` choosing between them. `services.py`, `api.py`,
-`models.py` and the tests do not move.
+That turned out to be **almost** true, and the exception is worth knowing.
 
-Four things transfer from the in-memory version to Mongo, and they are the four
-places where "it still works" and "it is still correct" come apart:
+[`MongoStore`](bank/mongo_store.py) implements the same method names as
+`BankStore` — `add_user`, `get_account`, `add_transaction`, `ledger_sum`, the
+rest — and `services.py`, `api.py`, `models.py`, `serializers.py` and the
+existing tests are untouched. But two methods had to be **added to the interface**
+and called from the service layer:
 
-| In memory today | In Mongo | Note for whoever writes it |
+| Added | Why it could not be avoided |
+| --- | --- |
+| `save_account(account)` | `BankStore.get_account` returns the object in the dict, so `account._apply(amount)` *is* the save. `MongoStore.get_account` returns a fresh object built from a document, and mutating that reaches nothing. Without an explicit write-back, a deposit would update a balance in memory and nothing on the server — **and every existing test would still pass**, because the in-memory store does not need the call. |
+| `transaction()` | `threading.RLock` guards one process. `transfer()` needs four writes to be one unit across processes, and only a real MongoDB session does that. It is a `nullcontext` for `BankStore`. |
+
+So the honest version of the claim is: the repository seam held, and it cost two
+methods on the interface rather than a rewrite of the business rules. That is
+what the pattern was for, and it is a better thing to be able to say in a review
+than a claim that nothing changed.
+
+### The four mechanisms that changed shape
+
+| In memory | In Mongo | Where |
 | --- | --- | --- |
-| `itertools.count(1)` for ids | A `counters` collection with `find_one_and_update` / `$inc` | Mongo's `_id` is an ObjectId; the brief's API returns integer ids, so we keep integers and allocate them atomically |
-| `_email_index` dict | A **unique index** on `users.email` | `db.users.create_index("email", unique=True)` — then the duplicate-email check is the index, not Python |
-| `_client_txn_ids` set | A **unique index** on `transactions.client_txn_id` (sparse) | This is the idempotency guarantee. A set in one process does not survive two processes; the index does |
-| `threading.RLock()` | A **transaction** in `transfer()` | The reason we are on Atlas rather than a local `mongod` |
+| `itertools.count(1)` | `counters` collection, `find_one_and_update` + `$inc` | Atomic server-side, so two processes never get the same id. Ids stay integers because the API returns integers. |
+| `_email_index` dict | **unique index** on `users.email` | The duplicate-email rejection is now the index, not a check that could be forgotten |
+| `_client_txn_ids` set | **unique sparse index** on `transactions.client_txn_id` | The rule that gets genuinely *stronger*: a set protects one process, an index protects the database |
+| `threading.RLock()` | a real **transaction** in `transfer()` | Requires a replica set. This is why we are on Atlas |
 
-Money stays as integer cents. BSON has a 64-bit integer type and Python's `int`
-maps to it — do **not** let it become a `Double` on the way in, which is the same
-float problem [`money.py`](bank/money.py) exists to prevent, arriving by a
-different door.
+Indexes are created by `MongoStore.ensure_indexes()` at startup, not by anyone
+clicking in the Atlas UI. `create_index` is idempotent, and an index that exists
+on one person's cluster but not in version control is a rule that silently does
+not apply to everybody else.
+
+### Money
+
+Integer cents, stored as a BSON 64-bit integer — **not** `Decimal128`. `$sum`
+over 64-bit integers is exact, which is what lets `ledger_sum()` be computed
+server-side by an aggregation and still compared with `==` and no tolerance.
+
+### Verifying it
+
+```bash
+python test_mongo.py      # 21 tests against the real cluster
+```
+
+Skipped automatically when `MONGODB_URI` is unset, so a teammate who has not done
+the Atlas setup sees a skip rather than a failure. Every balance assertion in it
+re-reads from the database through a second connection rather than trusting the
+object in hand — that is the whole point, since the write-back bug described
+above passes any test that checks the returned object.
+
+It includes a test that forces a failure between a transfer's two legs and
+asserts that **both** are rolled back. That one fails on a standalone `mongod`
+and passes on Atlas, which is the replica-set argument made executable.
 
 ---
 

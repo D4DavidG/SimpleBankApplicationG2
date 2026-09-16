@@ -142,11 +142,12 @@ class BankService:
         # entirely rather than being validated into a spurious error. Opening an
         # empty account is a normal thing to do; depositing nothing is not.
         opening = parse_amount(opening_balance) if opening_balance else 0
-        with self._lock:
+        with self._lock, self.store.transaction():
             account = make_account(account_type, user_id=owner.user_id)
             self.store.add_account(account)
             if opening > 0:
                 account._apply(opening)
+                self.store.save_account(account)
                 self._post(account.account_id, DEPOSIT, opening, None)
             return account
 
@@ -190,7 +191,7 @@ class BankService:
         # Validate before touching anything. parse_amount raises on a negative, a
         # float, three decimal places, or an amount over the per-transaction ceiling.
         amount = parse_amount(amount)
-        with self._lock:
+        with self._lock, self.store.transaction():
             # Ownership first: a caller who may not see this account must not be
             # able to learn from the error whether it is frozen or does not exist.
             account = self.get_account_to_move_money(account_id, actor)
@@ -198,14 +199,17 @@ class BankService:
             if not account.is_active:
                 raise AccountNotActive(f"account {account_id} is {account.status.lower()}")
 
-            # These two lines are the invariant. Nothing may come between them.
+            # These three lines are the invariant. Nothing may come between them,
+            # and the surrounding store.transaction() is what makes "nothing"
+            # true for a second process as well as for a second thread.
             account._apply(amount)
+            self.store.save_account(account)
             return self._post(account_id, DEPOSIT, amount, client_txn_id)
 
     def withdraw(self, account_id: int, amount, actor: User,
                  client_txn_id: str | None = None) -> Transaction:
         amount = parse_amount(amount)
-        with self._lock:
+        with self._lock, self.store.transaction():
             account = self.get_account_to_move_money(account_id, actor)
             self._guard_idempotency(client_txn_id)
             if not account.is_active:
@@ -224,20 +228,24 @@ class BankService:
             # Check and write sit inside one lock, so no second request can slip
             # between them and spend the same money twice.
             account._apply(-amount)
+            self.store.save_account(account)
             return self._post(account_id, WITHDRAWAL, amount, client_txn_id)
 
     def transfer(self, from_id: int, to_id: int, amount, actor: User,
                  client_txn_id: str | None = None) -> tuple[Transaction, Transaction]:
         """Both legs happen or neither does.
 
-        In memory that is easy because nothing can interrupt this method. With a
-        real database it needs an explicit transaction, and that is one of the
-        things to carry forward when the database lands.
+        In memory that is easy because nothing can interrupt this method. Against
+        a database it is not, so the whole sequence runs inside
+        `store.transaction()` - a no-op for `BankStore`, a real session for
+        `MongoStore`. That is the guarantee multi-document transactions exist
+        for, and the reason the cluster has to be a replica set: a standalone
+        mongod accepts the same code and gives no atomicity, silently.
         """
         amount = parse_amount(amount)
         if from_id == to_id:
             raise ValueError("cannot transfer to the same account")
-        with self._lock:
+        with self._lock, self.store.transaction():
             source = self.get_account_to_move_money(from_id, actor)  # owner only
             target = self.store.get_account(to_id)          # recipient need not be yours
             self._guard_idempotency(client_txn_id)
@@ -253,6 +261,8 @@ class BankService:
             # run, so nothing below raises and leaves one leg applied.
             source._apply(-amount)
             target._apply(amount)
+            self.store.save_account(source)
+            self.store.save_account(target)
             out = self._post(from_id, TRANSFER_OUT, amount, client_txn_id)
             inn = self._post(to_id, TRANSFER_IN, amount, None)
             return out, inn
@@ -273,9 +283,10 @@ class BankService:
     def set_frozen(self, account_id: int, frozen: bool, reason: str, actor: User) -> Account:
         self._require_admin(actor)
         self._require_reason(reason)
-        with self._lock:
+        with self._lock, self.store.transaction():
             account = self.store.get_account(account_id)
             account.status = FROZEN if frozen else ACTIVE
+            self.store.save_account(account)
             self._log(actor, "FREEZE" if frozen else "UNFREEZE", account_id, reason)
             return account
 
@@ -296,11 +307,12 @@ class BankService:
         amount = parse_amount(amount)
         if direction not in ("CREDIT", "DEBIT"):
             raise ValueError("direction must be CREDIT or DEBIT")
-        with self._lock:
+        with self._lock, self.store.transaction():
             account = self.store.get_account(account_id)
 
             delta = amount if direction == "CREDIT" else -amount
             account._apply(delta)  # raises InsufficientFunds if it would go negative
+            self.store.save_account(account)
             txn = self._post(account_id, DEPOSIT if direction == "CREDIT" else WITHDRAWAL,
                              amount, None, adjusted_by=actor.user_id,
                              reason=reason.strip())

@@ -8,6 +8,7 @@ the week, this file is the only one that gets rewritten and the business rules i
 services.py do not change at all. That is the same reason the class exists as a
 seam rather than the services just using globals.
 """
+import contextlib
 import itertools
 
 from .errors import AccountNotFound, EmailAlreadyUsed, UserNotFound
@@ -81,6 +82,39 @@ class BankStore:
             return self._accounts[account_id]
         except KeyError:
             raise AccountNotFound(f"no account with id {account_id}") from None
+
+    def save_account(self, account: Account) -> Account:
+        """Persist an account whose fields the service layer just changed.
+
+        A no-op here, and deliberately not removed as dead code. `get_account`
+        returns the very object held in `_accounts`, so mutating it *is* the
+        save - but that is a property of storing objects in a dict, not a
+        property of storage in general. A database store hands back a fresh
+        object built from a document, and a mutation to that object reaches
+        nothing unless somebody writes it back.
+
+        So the service layer calls this after every change to an account, and in
+        memory it costs an attribute lookup. Without it, `MongoStore` would need
+        `services.py` to be written differently from the version the tests
+        exercise, which is exactly the coupling the repository pattern is here
+        to prevent.
+        """
+        self._accounts[account.account_id] = account
+        return account
+
+    @contextlib.contextmanager
+    def transaction(self):
+        """Group writes so they all happen or none do.
+
+        Nothing to do in memory: no other thread can interleave, because
+        `BankService` holds an RLock across every method that moves money, and
+        nothing here can fail partway and leave a half-written dict.
+
+        It exists so `services.transfer()` can declare the boundary it needs in
+        one place. `MongoStore` implements this with a real session, which is the
+        version that holds when the process is not the only writer.
+        """
+        yield
 
     def accounts_for_user(self, user_id: int) -> list[Account]:
         return sorted(

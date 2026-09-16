@@ -92,25 +92,16 @@ def die(*_):
 # ------------------------------------------------------------------ .env load
 
 def load_env():
-    """Read `.env` into os.environ without adding a dependency.
+    """Read `.env` into os.environ, via the same loader the application uses.
 
-    The application does not do this yet - `security.py` reads os.environ
-    directly - so this script parses the file itself, which is what makes the
-    `.env` step in mongo.md true today. Real values already in the environment
-    win, so `MONGODB_DB=... python tools/check_mongo.py` overrides the file.
+    Deliberately not a second copy of the parser. This script exists to tell you
+    why your setup does not work, so it has to read the file exactly the way
+    `server.py` does - a checker with its own subtly different parser can pass
+    while the server fails, which is worse than having no checker.
     """
-    if not ENV_FILE.exists():
-        return
-    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key, value = key.strip(), value.strip()
-        # Tolerate quotes: people copy these out of shell snippets.
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        os.environ.setdefault(key, value)
+    sys.path.insert(0, str(REPO_ROOT))
+    from bank import config
+    config.load_env()
 
 
 def redact(uri):
@@ -403,7 +394,9 @@ def main():
     print(f"  cluster:  {redact(uri)}")
     print(f"  database: {db_name}")
     print()
-    print("  Next: the MongoStore work - see mongo.md, 'How this fits the code'.")
+    print("  Next:  python tools/seed_mongo.py     load the demo roster")
+    print("         python server.py --mongo      serve the API from Atlas")
+    print("         python test_mongo.py          21 tests against this cluster")
     return OK
 
 

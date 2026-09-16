@@ -10,7 +10,10 @@ aspirational:
     serializers.py  Domain objects -> JSON dicts. Money goes out as integer cents.
     services.py     Every business rule. No HTTP, no SQL, no framework.
     models.py       User, Account, Transaction as plain classes.
-    store.py        Repository. In-memory today, a database later.
+    store.py        Repository. In-memory, and the default.
+    mongo_store.py  The same repository backed by MongoDB Atlas. Needs pymongo,
+                    so it is imported only when `server.py --mongo` asks for it.
+    config.py       Reads `.env`. Standard library; a real env var wins.
     money.py        Cents as ints, and amount validation. Read this first.
     security.py     Password hashing and signed session tokens.
     errors.py       Domain exceptions. Not HTTP status codes.
