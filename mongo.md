@@ -155,8 +155,12 @@ the recovery path is deleting the user and making a new one.
 
 ### B3. Get your connection string
 
-**Database** → **Connect** on `Cluster0` → **Drivers** → Driver **Python**,
-Version **3.12 or later**.
+**Database** → **Connect** on `Cluster0` → **Drivers** → Driver **Python**.
+
+**Ignore the version dropdown, and ignore the `pip install` line on that page.**
+Take *only* the connection string from step 3 of it. Why, in detail, is the next
+section — it is the single easiest way to break your setup, and the page hands it
+to you looking official.
 
 Copy the string. It looks like:
 
@@ -176,12 +180,36 @@ is why `dnspython` is a dependency.
 pip install -r requirements.txt
 ```
 
-**If you have read an Atlas tutorial elsewhere, ignore its install line.** Every
-one of them says `pip install "pymongo[srv]"`. As of pymongo 4.18 that extra no
-longer exists — pip prints `WARNING: pymongo 4.18.1 does not provide the extra
-'srv'` and carries on. It is harmless, but it is also unnecessary: `dnspython`
-is now a hard dependency of pymongo, so plain `pymongo` already speaks
+**That is the whole step. Do not run the command Atlas shows you.**
+
+This is worth being blunt about, because the Atlas "Connect" page displays an
+install line that is actively wrong for us, and it looks like the authoritative
+instruction on an official page. It currently reads:
+
+```
+python -m pip install "pymongo[srv]==3.12"     # <- do NOT run this
+```
+
+Two separate problems, either of which costs you an afternoon:
+
+**The "3.12" is the pymongo driver version, not your Python version.** It is
+natural to read it as Python 3.12 and think it is a minimum. It is not: it is an
+exact pin (`==`) to **pymongo 3.12.0, released in 2021**, four major versions
+behind the current 4.18. Running it on Python 3.14 downloads a source tarball
+rather than a wheel — there is no cp314 build of a 2021 release — so pip tries to
+compile the C extensions locally, and it downgrades `dnspython` from 2.8 to 1.16
+on the way past. The version dropdown on that page changes only this sample line;
+the connection string above it is the same either way, which is why you can
+safely ignore the dropdown entirely.
+
+**The `[srv]` extra no longer exists.** Every Atlas tutorial still says it. As of
+pymongo 4.18 pip prints `WARNING: pymongo 4.18.1 does not provide the extra
+'srv'` and carries on. That one is harmless, and also unnecessary — `dnspython`
+is a hard dependency of modern pymongo, so plain `pymongo` already speaks
 `mongodb+srv://`.
+
+`requirements.txt` pins `pymongo>=4.18.1,<5`, which has a real cp314 wheel and
+installs in seconds. Use it and move on.
 
 This is the first third-party package this project has ever needed. Everything
 up to now has been standard library, which is why there was no `requirements.txt`
@@ -395,6 +423,24 @@ Something reformatted the connection string — a quote, a trailing space, a lin
 break from copying out of a chat message.
 
 → Repaste it as one line, no surrounding quotes.
+
+### `ModuleNotFoundError: No module named 'pymongo'` right after installing it
+
+Or: check 1 passes but the API is unrecognisable, or pip spent minutes trying to
+compile something.
+
+You probably ran the install line from the Atlas Connect page, which pins
+**pymongo 3.12 from 2021** and downgrades `dnspython`. See [B4](#b4-install-the-driver).
+
+→ Undo it:
+
+```bash
+pip uninstall -y pymongo dnspython
+pip install -r requirements.txt
+python tools/check_mongo.py
+```
+
+Check 1 prints the version it actually found. It should say **4.18.1 or later**.
 
 ### `OperationFailure: user is not allowed to do action`
 
