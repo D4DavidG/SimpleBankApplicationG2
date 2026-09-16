@@ -5,8 +5,10 @@ admin surface. Pure Python, standard library only. **Nothing to `pip install`.**
 
 ```bash
 python demo.py                     # walkthrough of every rule, no server needed
-python -m unittest -q              # 95 tests, ~6 seconds
-python server.py                   # REST API on http://127.0.0.1:8000, seeded
+python demo.py --step              # the same, paused between sections, for presenting
+python demo.py --step --mongo      # ... against Atlas, ending in a persistence proof
+python -m unittest -q              # 107 tests (12 Mongo ones skip without a cluster)
+python server.py                   # REST API on http://127.0.0.1:8000
 python tools/export_postman.py     # regenerate postman_collection.json
 ```
 
@@ -38,7 +40,7 @@ Requires Python 3.10 or newer (the code uses `str | None` type syntax).
 
 | | |
 | --- | --- |
-| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 17 routes, role-based authorization, an audit log, seed data, 95 tests, a console demo, a generated Postman collection |
+| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 17 routes, role-based authorization, a persisted audit log, seed data, 107 tests, a MongoDB Atlas repository, a console demo, a generated Postman collection |
 | **Not here** | A database, a frontend, any third-party package |
 
 The backend still imports nothing but the standard library, and
@@ -72,6 +74,20 @@ python demo.py
 Eleven sections. Sections 1 to 10 call service methods and print what each rule
 did; section 11 reaches the same rules through the HTTP layer so the rules and
 their status codes appear side by side. Nothing to type, nothing to clean up.
+
+**Presenting it to a room:**
+
+```bash
+python demo.py --step              # stops before each section, waits for Enter
+python demo.py --step --mongo      # ... and stores it all in MongoDB Atlas
+```
+
+`--step` exists so the narration happens between sections instead of racing a
+wall of scrolling output. `--mongo` adds a twelfth section that opens a **second,
+independent connection** and reads the balances and the audit log back out of
+Atlas — the one claim the in-memory version cannot make. It uses its own
+`simple_bank_demo` database and wipes it on the way in, so it never touches the
+shared data and can be run twice.
 
 ### Run the API
 
@@ -174,7 +190,7 @@ table is the index.
 | File | What it does |
 | --- | --- |
 | [server.py](server.py) | Entry point. Composes store → service → API, seeds, and serves. |
-| [demo.py](demo.py) | Console walkthrough of every rule, then the same rules over HTTP. |
+| [demo.py](demo.py) | Console walkthrough of every rule, then the same rules over HTTP. `--step` pauses between sections for presenting; `--mongo` runs it against Atlas and ends by reading everything back through a second connection. |
 | [test_bank.py](test_bank.py) | 34 tests of the business rules. Imports no HTTP anything. |
 | [test_api.py](test_api.py) | 59 tests of the controller: routing, auth, error mapping, serialization, the seed, and one end-to-end pass over a real socket. |
 | [tools/export_postman.py](tools/export_postman.py) | Generates `postman_collection.json` **from the live route table**, so it cannot drift from the code. |

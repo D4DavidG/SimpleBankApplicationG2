@@ -1,13 +1,31 @@
 """Console walkthrough of the whole backend. Run with: python demo.py
 
+    python demo.py              # run straight through, in memory
+    python demo.py --step       # pause at each section: for presenting
+    python demo.py --mongo      # run against MongoDB Atlas instead of memory
+    python demo.py --step --mongo
+
 Sections 1 to 10 exercise every rule in `services.py` by calling methods, and
 print what happened. Section 11 then reaches the same rules through the REST
-layer, so the same behaviour is visible as HTTP status codes.
+layer, so the same behaviour is visible as HTTP status codes. Section 12 appears
+only with --mongo, and shows the one thing memory cannot: the records are still
+there, read back through a second connection.
 
-No input required and no server needed, so it is safe to run during a demo
+No typing required and no server needed, so it is safe to run during a demo
 without typing under pressure or hoping a port is free.
+
+--step is for presenting to a room. It stops before each section and waits for
+Enter, so the narration happens between sections instead of racing a wall of
+scrolling output.
+
+--mongo uses its own database, `simple_bank_demo`, and wipes it on the way in.
+Never the shared `simple_bank`, and never your own working database: a demo that
+may need running twice has to survive being run twice, and one that deletes the
+data somebody else is about to present is worse than no demo.
 """
+import argparse
 import json
+import os
 
 from bank import (
     AccountNotActive, AccountNotFound, BankAPI, BankError, BankService, BankStore,
@@ -15,8 +33,26 @@ from bank import (
     format_money, issue_token,
 )
 
+# The database --mongo uses. Deliberately not `simple_bank` (the shared demo
+# data) and not `simple_bank_<yourname>` (whatever you are working against).
+DEMO_DB = "simple_bank_demo"
+
+STEP = False
+
+
+def pause():
+    """Wait for Enter between sections, under --step."""
+    if not STEP:
+        return
+    try:
+        input("\n        ... Enter for the next section (Ctrl+C to stop) ")
+    except (EOFError, KeyboardInterrupt):
+        print("\n  stopped.")
+        raise SystemExit(0)
+
 
 def rule(label):
+    pause()
     print(f"\n{'=' * 68}\n{label}\n{'=' * 68}")
 
 
@@ -40,9 +76,55 @@ def attempt(label, fn):
         blocked(exc)
 
 
-def main():
-    store = BankStore()
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description="Console walkthrough of the backend")
+    p.add_argument("--step", action="store_true",
+                   help="pause before each section and wait for Enter")
+    p.add_argument("--mongo", action="store_true",
+                   help=f"run against MongoDB (database {DEMO_DB!r}) instead of memory")
+    return p
+
+
+def open_store(args):
+    """The store this run uses, and a line describing it for the banner."""
+    if not args.mongo:
+        return BankStore(), "in memory (nothing here is saved)"
+
+    from bank import config
+    config.load_env()
+    uri = os.environ.get("MONGODB_URI", "").strip()
+    if not uri:
+        print("  --mongo needs MONGODB_URI in .env. See mongo.md, or run:")
+        print("      python tools/check_mongo.py")
+        raise SystemExit(1)
+    try:
+        from bank.mongo_store import MongoStore
+    except ImportError:
+        print("  --mongo needs pymongo:  python -m pip install -r requirements.txt")
+        raise SystemExit(1)
+
+    store = MongoStore(uri, DEMO_DB)
+    # Wipe first, so the walkthrough survives being run twice. Without this the
+    # second run dies registering Aaron, whose email is already taken - which is
+    # the duplicate-email rule working correctly, and a terrible way to find out.
+    store.reset()
+    return store, f"MongoDB Atlas, database {DEMO_DB!r} (wiped on the way in)"
+
+
+def main(argv=None):
+    global STEP
+    args = build_parser().parse_args(argv)
+    STEP = args.step
+
+    store, storage = open_store(args)
     svc = BankService(store)
+
+    print("=" * 68)
+    print("  Simple Bank Application: backend walkthrough")
+    print("=" * 68)
+    print(f"  storage: {storage}")
+    if STEP:
+        print("  --step is on: press Enter to advance through each section.")
 
     rule("1. Users and accounts")
     aaron = svc.register_user("Aaron Forrester", "aaron.forrester@example.com")
@@ -186,6 +268,47 @@ def main():
               f"Every balance change has a matching ledger entry.")
 
     api_section(svc, aaron, david, checking, erik_acct)
+
+    if args.mongo:
+        persistence_section(store, checking.account_id)
+
+    if hasattr(store, "close"):
+        store.close()
+
+
+def persistence_section(store, account_id):
+    """The one thing memory cannot show: the records outlived the objects.
+
+    Everything above this point is also true of the in-memory store. What is only
+    true here is that the balances exist somewhere other than this process, so
+    this opens a SECOND connection and reads them back. Asking the store we have
+    been using all along would prove nothing - it has the answers in hand.
+    """
+    rule("12. It is actually in the database")
+
+    from bank.mongo_store import MongoStore
+    other = MongoStore(os.environ["MONGODB_URI"], DEMO_DB)
+    try:
+        print("  opened a second, independent connection to the same database\n")
+        account = other.get_account(account_id)
+        ok(f"account #{account_id} reads back as {format_money(account.balance)}")
+        ok(f"ledger sum over the same account: "
+           f"{format_money(other.ledger_sum(account_id))}")
+        ok(f"{len(other.all_users())} users and {len(other.all_accounts())} accounts "
+           f"are stored")
+
+        entries = other.audit_entries()
+        ok(f"{len(entries)} admin action(s) in the audit log, which also survives:")
+        for entry in entries:
+            print(f"             {entry}")
+
+        print()
+        print("     none of these numbers came from the objects this script built.")
+        print("     They were read out of Atlas by a connection that has never")
+        print("     seen them. Stop this script, run it again without --mongo,")
+        print("     and section 10 still reconciles - but nothing persists.")
+    finally:
+        other.close()
 
 
 def api_section(svc, aaron, david, checking, erik_acct):
