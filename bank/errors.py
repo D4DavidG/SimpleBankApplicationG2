@@ -79,6 +79,17 @@ class DuplicateTransaction(BankError):
     button. Refusing is what stops the second click depositing again."""
 
 
+class StaleIdCounter(BankError):
+    """The stored id counter is behind the records it numbers.
+
+    Raised when the counter hands out an id that already exists, which happens
+    when rows arrive without their counter: an import, a restore, or a seeder
+    that numbered them some other way. It is a setup problem, not a request
+    problem - retrying will fail identically - so it maps to 500 rather than 409,
+    and the message says how to repair it.
+    """
+
+
 class StorageUnavailable(BankError):
     """The database could not be reached.
 

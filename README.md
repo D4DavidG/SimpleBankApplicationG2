@@ -6,6 +6,8 @@ admin surface. Pure Python, standard library only. **Nothing to `pip install`.**
 ```bash
 python demo.py                     # walkthrough of every rule, no server needed
 python demo.py --step              # the same, paused between sections, for presenting
+python console.py --mongo          # type your own values in, one prompt at a time
+python simulate.py                 # live traffic to Atlas, watchable in a browser
 python demo.py --step --mongo      # ... against Atlas, ending in a persistence proof
 python -m unittest -q              # 107 tests (12 Mongo ones skip without a cluster)
 python server.py                   # REST API on http://127.0.0.1:8000
@@ -83,7 +85,66 @@ python demo.py --step --mongo      # ... and stores it all in MongoDB Atlas
 ```
 
 `--step` exists so the narration happens between sections instead of racing a
-wall of scrolling output. `--mongo` adds a twelfth section that opens a **second,
+wall of scrolling output.
+
+### Type the values in yourself
+
+```bash
+python console.py                  # in memory
+python console.py --mongo          # writes to Atlas and stays there
+python console.py --mongo --reset  # ... starting from empty
+```
+
+Press `?` at the menu for a glossary: every collection, every term the console
+prints, and what each refusal proves. It is there so the question can be
+answered off the screen rather than from memory.
+
+A numbered menu that prompts one field at a time — Name, Email, Password, User
+or Admin — then opens accounts, deposits, withdraws, transfers and runs the admin
+actions. `demo.py` is the scripted version; this is the one for when somebody
+watching wants to pick the name or the amount.
+
+Amounts are typed in dollars (`25.50`) and the conversion to integer cents is
+printed as it happens, which makes the money design visible rather than
+something you have to describe.
+
+Every option calls the same service method the matching REST route calls, so a
+rule refusing something here refuses it over HTTP too. Refusals print and return
+you to the menu — nothing can raise out of it mid-demo.
+
+By default `--mongo` uses its own database (`$MONGODB_DB` + `_console`), so
+typing invented names never touches the shared demo data.
+
+### Watch it land in the browser
+
+```bash
+python simulate.py                 # until Ctrl+C, about one action every 2s
+python simulate.py --reset         # from an empty database
+python simulate.py --delay 5       # slower, for narrating
+python simulate.py --fast --steps 200   # fill a database quickly
+```
+
+Generates ordinary activity — people open accounts, deposit, withdraw, send each
+other money, and occasionally an admin freezes something — against
+`$MONGODB_DB` + `_sim`. Put the **Atlas Data Explorer**
+(`cloud.mongodb.com` → Cluster0 → Browse Collections) beside the terminal and
+press its refresh icon: **Atlas does not refresh by itself**, which is the most
+confusing thing about watching a database in a browser.
+
+Every line names the collection and the `_id` it wrote, so a line on screen maps
+to a document you can click on:
+
+```
+14:51:31  [transactions _id=13  ] Orla Grimaldi deposited 1,031.00 to #3  -> 3,446.00
+14:51:31  [REFUSED      --------] Luca Lindqvist tried to withdraw 3,499.00 from #1
+                                 -> InsufficientFunds: requested 349900, available 282100
+```
+
+Withdrawals are deliberately sized to overdraw sometimes, and about one
+submission in twelve is resent with the reference just used. Those print as
+refusals and write nothing — which is the thing worth catching on screen, because
+the database is exactly where a missing rule would show up as a balance that
+should not exist. It reconciles every account on the way out. `--mongo` adds a twelfth section that opens a **second,
 independent connection** and reads the balances and the audit log back out of
 Atlas — the one claim the in-memory version cannot make. It uses its own
 `simple_bank_demo` database and wipes it on the way in, so it never touches the
@@ -190,6 +251,8 @@ table is the index.
 | File | What it does |
 | --- | --- |
 | [server.py](server.py) | Entry point. Composes store → service → API, seeds, and serves. |
+| [console.py](console.py) | **Interactive.** Prompts for a name, an email, an amount, and does it. For demonstrating live when the room wants to choose the values. `--mongo` writes to Atlas and prints the collection and `_id` to open in the browser; option 9 reads it back through a second connection; `?` is a glossary of everything on screen. |
+| [simulate.py](simulate.py) | **Live traffic.** Generates ordinary banking activity against Atlas, paced so you can watch documents appear in the Atlas Data Explorer. Every line names the collection and `_id` it wrote. Refusals are part of the simulation. |
 | [demo.py](demo.py) | Console walkthrough of every rule, then the same rules over HTTP. `--step` pauses between sections for presenting; `--mongo` runs it against Atlas and ends by reading everything back through a second connection. |
 | [test_bank.py](test_bank.py) | 34 tests of the business rules. Imports no HTTP anything. |
 | [test_api.py](test_api.py) | 59 tests of the controller: routing, auth, error mapping, serialization, the seed, and one end-to-end pass over a real socket. |

@@ -38,7 +38,7 @@ from .api import BankAPI, serve
 from .errors import (
     AccountNotActive, AccountNotFound, BankError, ConcurrentUpdate, DuplicateTransaction,
     EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized,
-    StorageUnavailable, UserNotFound,
+    StaleIdCounter, StorageUnavailable, UserNotFound,
 )
 from .models import (
     ACTIVE, DEPOSIT, FROZEN, ROLE_ADMIN, ROLE_CUSTOMER, TRANSFER_IN,
@@ -68,7 +68,7 @@ __all__ = [
     # errors
     "BankError", "InsufficientFunds", "AccountNotActive", "AccountNotFound",
     "UserNotFound", "EmailAlreadyUsed", "NotAuthorized", "InvalidAmount",
-    "DuplicateTransaction", "ConcurrentUpdate", "StorageUnavailable",
+    "DuplicateTransaction", "ConcurrentUpdate", "StaleIdCounter", "StorageUnavailable",
     # constants
     "DEPOSIT", "WITHDRAWAL", "TRANSFER_IN", "TRANSFER_OUT", "ACTIVE", "FROZEN",
     "ROLE_ADMIN", "ROLE_CUSTOMER",
