@@ -26,8 +26,6 @@ No imports from any web framework or database library. The whole module can be
 exercised by calling functions, which is what makes the tests fast and is what
 "clean separation" has to mean in practice.
 """
-import threading
-
 from .errors import (
     AccountNotActive, AccountNotFound, DuplicateTransaction,
     InsufficientFunds, NotAuthorized,
@@ -47,27 +45,31 @@ class BankService:
     framework. Everything this class needs arrives as an argument. That is what
     lets `test_bank.py` exercise every rule with a plain function call, and it is
     what "clean MVC separation" has to mean in practice rather than as a diagram.
+
+    Every method that changes data runs inside `self.store.atomic()`. The HTTP
+    server is threaded, so two requests really can run at once, and the natural
+    "read the balance, check it, write the new balance" sequence would otherwise
+    let two withdrawals both pass the check. In memory atomic() is a lock; against
+    MongoDB it is a multi-document transaction, which also holds across separate
+    server processes. Either way, a failure part-way through leaves nothing half
+    applied.
+
+    Balances change on the Account object through `_apply`, and are then handed to
+    `store.save_balance`. In memory that second call does nothing, because the
+    object is the stored record. In a database it is the write.
     """
 
     def __init__(self, store):
         self.store = store
-        # Admin actions, append-only: (actor_user_id, action, account_id, reason).
-        self.audit: list[tuple] = []
-        # Every method that changes money takes this lock.
-        #
-        # Single-threaded tests and the demo never need it. The HTTP server in
-        # api.py is threaded, so two requests genuinely can run at once, and the
-        # natural "read the balance, check it, write the new balance" sequence
-        # lets two simultaneous withdrawals both pass the check and both write.
-        #
-        # An RLock (rather than a plain Lock) because these methods call each
-        # other - `transfer` uses the same guarded internals as `withdraw` - and a
-        # plain Lock would deadlock the moment one held method called another.
-        #
-        # This is the in-memory stand-in for a database transaction. When MySQL
-        # arrives the lock is replaced by the conditional UPDATE in the README,
-        # which is the version that holds across more than one process.
-        self._lock = threading.RLock()
+
+    @property
+    def audit(self) -> list[tuple]:
+        """Admin actions, oldest first: (actor_user_id, action, account_id, reason).
+
+        Kept by the store rather than on this object, so that with a database it
+        survives a restart along with the balances it explains.
+        """
+        return self.store.audit_entries()
 
     # ------------------------------------------------------------------ users
 
@@ -97,7 +99,7 @@ class BankService:
             raise ValueError("pass password or password_hash, not both")
         if password is not None:
             password_hash = hash_password(password)
-        with self._lock:
+        with self.store.atomic():
             return self.store.add_user(name.strip(), email, role, password_hash)
 
     def authenticate(self, email: str, password: str) -> User:
@@ -142,11 +144,12 @@ class BankService:
         # entirely rather than being validated into a spurious error. Opening an
         # empty account is a normal thing to do; depositing nothing is not.
         opening = parse_amount(opening_balance) if opening_balance else 0
-        with self._lock:
+        with self.store.atomic():
             account = make_account(account_type, user_id=owner.user_id)
             self.store.add_account(account)
             if opening > 0:
                 account._apply(opening)
+                self.store.save_balance(account)
                 self._post(account.account_id, DEPOSIT, opening, None)
             return account
 
@@ -190,7 +193,7 @@ class BankService:
         # Validate before touching anything. parse_amount raises on a negative, a
         # float, three decimal places, or an amount over the per-transaction ceiling.
         amount = parse_amount(amount)
-        with self._lock:
+        with self.store.atomic():
             # Ownership first: a caller who may not see this account must not be
             # able to learn from the error whether it is frozen or does not exist.
             account = self.get_account_to_move_money(account_id, actor)
@@ -198,14 +201,15 @@ class BankService:
             if not account.is_active:
                 raise AccountNotActive(f"account {account_id} is {account.status.lower()}")
 
-            # These two lines are the invariant. Nothing may come between them.
+            # The balance change and its ledger entry commit together or not at all.
             account._apply(amount)
+            self.store.save_balance(account)
             return self._post(account_id, DEPOSIT, amount, client_txn_id)
 
     def withdraw(self, account_id: int, amount, actor: User,
                  client_txn_id: str | None = None) -> Transaction:
         amount = parse_amount(amount)
-        with self._lock:
+        with self.store.atomic():
             account = self.get_account_to_move_money(account_id, actor)
             self._guard_idempotency(client_txn_id)
             if not account.is_active:
@@ -221,23 +225,24 @@ class BankService:
                     f"insufficient funds: requested {amount}, available {available}"
                 )
 
-            # Check and write sit inside one lock, so no second request can slip
-            # between them and spend the same money twice.
+            # Check and write sit inside one atomic block, so no second request can
+            # slip between them and spend the same money twice.
             account._apply(-amount)
+            self.store.save_balance(account)
             return self._post(account_id, WITHDRAWAL, amount, client_txn_id)
 
     def transfer(self, from_id: int, to_id: int, amount, actor: User,
                  client_txn_id: str | None = None) -> tuple[Transaction, Transaction]:
         """Both legs happen or neither does.
 
-        In memory that is easy because nothing can interrupt this method. With a
-        real database it needs an explicit transaction, and that is one of the
-        things to carry forward when the database lands.
+        store.atomic() is what makes that true: a lock in memory, and in MongoDB a
+        multi-document transaction, where both balance updates and both ledger
+        entries commit together or roll back together.
         """
         amount = parse_amount(amount)
         if from_id == to_id:
             raise ValueError("cannot transfer to the same account")
-        with self._lock:
+        with self.store.atomic():
             source = self.get_account_to_move_money(from_id, actor)  # owner only
             target = self.store.get_account(to_id)          # recipient need not be yours
             self._guard_idempotency(client_txn_id)
@@ -253,6 +258,8 @@ class BankService:
             # run, so nothing below raises and leaves one leg applied.
             source._apply(-amount)
             target._apply(amount)
+            self.store.save_balance(source)
+            self.store.save_balance(target)
             out = self._post(from_id, TRANSFER_OUT, amount, client_txn_id)
             inn = self._post(to_id, TRANSFER_IN, amount, None)
             return out, inn
@@ -273,9 +280,10 @@ class BankService:
     def set_frozen(self, account_id: int, frozen: bool, reason: str, actor: User) -> Account:
         self._require_admin(actor)
         self._require_reason(reason)
-        with self._lock:
+        with self.store.atomic():
             account = self.store.get_account(account_id)
             account.status = FROZEN if frozen else ACTIVE
+            self.store.save_status(account)
             self._log(actor, "FREEZE" if frozen else "UNFREEZE", account_id, reason)
             return account
 
@@ -296,11 +304,12 @@ class BankService:
         amount = parse_amount(amount)
         if direction not in ("CREDIT", "DEBIT"):
             raise ValueError("direction must be CREDIT or DEBIT")
-        with self._lock:
+        with self.store.atomic():
             account = self.store.get_account(account_id)
 
             delta = amount if direction == "CREDIT" else -amount
             account._apply(delta)  # raises InsufficientFunds if it would go negative
+            self.store.save_balance(account)
             txn = self._post(account_id, DEPOSIT if direction == "CREDIT" else WITHDRAWAL,
                              amount, None, adjusted_by=actor.user_id,
                              reason=reason.strip())
@@ -319,7 +328,7 @@ class BankService:
         """The admin audit trail. Read-only, and a copy, so a caller cannot append
         to it by holding the list."""
         self._require_admin(actor)
-        return list(self.audit)
+        return self.store.audit_entries()
 
     def reconciliation_report(self, actor: User) -> list[tuple[int, int, int]]:
         """`reconcile_all()` with the role check attached.
@@ -397,4 +406,4 @@ class BankService:
             raise ValueError("a written reason of at least 10 characters is required")
 
     def _log(self, actor: User, action: str, account_id: int | None, reason: str) -> None:
-        self.audit.append((actor.user_id, action, account_id, reason.strip()))
+        self.store.add_audit_entry(actor.user_id, action, account_id, reason.strip())

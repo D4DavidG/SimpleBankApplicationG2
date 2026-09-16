@@ -77,3 +77,20 @@ class InvalidAmount(BankError, ValueError):
 class DuplicateTransaction(BankError):
     """This `client_txn_id` has already been applied - the double-clicked submit
     button. Refusing is what stops the second click depositing again."""
+
+
+class StorageUnavailable(BankError):
+    """The database could not be reached.
+
+    Maps to 503. The request itself was fine and nothing was changed, so the
+    caller can simply try again. Only a database-backed store raises it.
+    """
+
+
+class ConcurrentUpdate(BankError):
+    """Another request changed the same data first, so this one was rolled back.
+
+    Maps to 409. It is the database's write-conflict protection doing its job:
+    two simultaneous withdrawals cannot both spend the same money, so one is
+    refused whole rather than half applied. Retrying is safe.
+    """

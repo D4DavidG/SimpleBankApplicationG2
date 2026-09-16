@@ -1,6 +1,8 @@
 """Simple Bank Application: backend.
 
-Pure Python, standard library only. Nothing to install.
+Standard library only, except mongo_store.py, which needs pymongo
+(pip install -r requirements.txt). Nothing imports it unless the server is
+configured to use MongoDB, so the tests and the demo still install nothing.
 
 Layers, outermost first. Each one depends only on the layer below it, which is
 what makes the arrow in the brief's architecture diagram true rather than
@@ -10,7 +12,9 @@ aspirational:
     serializers.py  Domain objects -> JSON dicts. Money goes out as integer cents.
     services.py     Every business rule. No HTTP, no SQL, no framework.
     models.py       User, Account, Transaction as plain classes.
-    store.py        Repository. In-memory today, a database later.
+    store.py        In-memory repository. Used by the tests and the demo.
+    mongo_store.py  MongoDB repository, same method names. Used by the server.
+    config.py       Reads .env into the environment.
     money.py        Cents as ints, and amount validation. Read this first.
     security.py     Password hashing and signed session tokens.
     errors.py       Domain exceptions. Not HTTP status codes.
@@ -32,8 +36,9 @@ Used as an API:
 """
 from .api import BankAPI, serve
 from .errors import (
-    AccountNotActive, AccountNotFound, BankError, DuplicateTransaction,
-    EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized, UserNotFound,
+    AccountNotActive, AccountNotFound, BankError, ConcurrentUpdate, DuplicateTransaction,
+    EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized,
+    StorageUnavailable, UserNotFound,
 )
 from .models import (
     ACTIVE, DEPOSIT, FROZEN, ROLE_ADMIN, ROLE_CUSTOMER, TRANSFER_IN,
@@ -63,7 +68,7 @@ __all__ = [
     # errors
     "BankError", "InsufficientFunds", "AccountNotActive", "AccountNotFound",
     "UserNotFound", "EmailAlreadyUsed", "NotAuthorized", "InvalidAmount",
-    "DuplicateTransaction",
+    "DuplicateTransaction", "ConcurrentUpdate", "StorageUnavailable",
     # constants
     "DEPOSIT", "WITHDRAWAL", "TRANSFER_IN", "TRANSFER_OUT", "ACTIVE", "FROZEN",
     "ROLE_ADMIN", "ROLE_CUSTOMER",
