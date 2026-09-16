@@ -6,6 +6,7 @@ No pytest, no database, no server. Every test is a function call, which is the
 payoff for keeping the rules in services.py free of framework imports.
 """
 import unittest
+from dataclasses import FrozenInstanceError
 
 from bank import (
     AccountNotActive, AccountNotFound, BankService, BankStore,
@@ -174,6 +175,11 @@ class TestFrozenAccounts(BankTestCase):
 
 
 class TestIdempotency(BankTestCase):
+    def test_transaction_is_immutable(self):
+        txn = self.svc.deposit(self.a_checking.account_id, 1000, self.aaron, "txn-immutable")
+        with self.assertRaises(FrozenInstanceError):
+            txn.amount = 999
+
     def test_the_same_submission_is_not_applied_twice(self):
         body = (10000, self.aaron, "submit-attempt-0001")
         self.svc.deposit(self.a_checking.account_id, *body)

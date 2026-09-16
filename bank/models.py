@@ -93,7 +93,7 @@ class User:
         return f"{self.name} <{self.email}>"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Transaction:
     """One immutable ledger entry.
 
