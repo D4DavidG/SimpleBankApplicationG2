@@ -108,6 +108,11 @@ class Transaction:
     amount: int          # cents, always positive; the sign lives in txn_type
     client_txn_id: str | None = None
     created_at: datetime = field(default_factory=_now)
+    # Set only by an admin adjustment, so a correction is never mistaken for a
+    # customer's own deposit. The audit log records the same facts, but somebody
+    # reading one account's history should not have to cross-reference it.
+    adjusted_by: int | None = None
+    reason: str | None = None
 
     @property
     def signed_amount(self) -> int:

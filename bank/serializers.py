@@ -111,7 +111,7 @@ def transaction_json(txn: Transaction) -> dict:
 
     `amount` and `signedAmount` are cents: `"amount": 2500` is 25.00.
     """
-    return {
+    payload = {
         "txnId": txn.txn_id,
         "accountId": txn.account_id,
         "type": txn.txn_type,
@@ -121,6 +121,12 @@ def transaction_json(txn: Transaction) -> dict:
         "clientTxnId": txn.client_txn_id,
         "createdAt": txn.created_at.isoformat(),
     }
+    if txn.adjusted_by is not None:
+        # Only an admin adjustment carries these, so an ordinary deposit keeps
+        # exactly the shape it had before.
+        payload["adjustedBy"] = txn.adjusted_by
+        payload["reason"] = txn.reason
+    return payload
 
 
 def page_json(rows: list, total: int, page: int, page_size: int) -> dict:
