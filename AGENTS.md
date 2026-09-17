@@ -24,7 +24,7 @@ feature nobody on the team can walk a room through is worse than no feature.
 
 | Layer | State |
 | --- | --- |
-| Domain, services, repository | Done. 147 tests, 16 skip without a Mongo cluster. |
+| Domain, services, repository | Done. 153 tests, 16 skip without a Mongo cluster. |
 | REST API | Done. 19 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
 | Auth | Done. Register, login, `/api/auth/me`, stored tokens, ADMIN role. |
 | Database | Done for MongoDB Atlas. In-memory fallback. **MySQL not started.** |
@@ -39,12 +39,11 @@ another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
 
 ### Must ship — these are graded
 
-- [ ] **Decide what happens to `TransactionMenu.jsx`.** It already does deposit,
-      withdraw and transfer in one component, which overlaps three of the stubs
-      below. Two people could otherwise build work that exists. Options and the
-      reasoning: [frontend/PLAN.md](frontend/PLAN.md) §2.
-- [ ] **Frontend pages.** The remaining stubs in `frontend/src/pages/`, one file
-      each. Plan and owner table: [frontend/PLAN.md](frontend/PLAN.md).
+- [x] **Decide what happens to `TransactionMenu.jsx`.** Settled: it is the
+      shared form. `Deposit.jsx` and `Withdraw.jsx` render it with `fixedKind`,
+      so the three actions share one set of money rules.
+- [x] **Frontend pages.** All six screens in brief §7 exist, plus transfer,
+      profile and admin. Owner table: [frontend/PLAN.md](frontend/PLAN.md).
 - [ ] **SQL script.** A submission requirement and it does not exist in the repo.
       The schema and inserts are written and verified in the team's
       `seed_data_bank_app.md` planning doc, §3–4. Extract to `sql/schema.sql`
@@ -152,5 +151,5 @@ pymongo and nothing else. Keep it that way.
 | `bank/` | The backend. `api.py` has the route table; `services.py` has the rules. |
 | `APIDocs.txt` | The API contract. The frontend's source of truth. |
 | `frontend/` | React + Vite. See its README and PLAN. |
-| `test_*.py` | 147 tests. `python -m unittest -q`. |
+| `test_*.py` | 153 tests. `python -m unittest -q`. |
 | `tools/check_mongo.py` | Run when Atlas will not connect. It explains what failed. |

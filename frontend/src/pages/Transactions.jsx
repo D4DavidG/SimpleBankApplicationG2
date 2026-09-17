@@ -3,8 +3,12 @@ import { Link, useParams } from 'react-router-dom'
 import * as api from '../lib/api'
 import { formatCents, formatDate } from '../lib/money'
 
-export default function Transactions() {
-  const { accountId } = useParams()
+/* Used two ways: as the page at /accounts/:id/transactions, where the id comes
+ * from the URL, and embedded in History.jsx, where it arrives as a prop. The
+ * prop wins when it is there, so the same table serves both. */
+export default function Transactions({ accountId: accountIdProp }) {
+  const params = useParams()
+  const accountId = accountIdProp ?? params.accountId
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
   const [items, setItems] = useState([])

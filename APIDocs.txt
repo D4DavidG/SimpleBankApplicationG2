@@ -99,7 +99,7 @@ Open Account
                  transaction, so the ledger still adds up to the balance.
     INPUT
         cookie
-        accountType ("CHECKING" or "SAVINGS")
+        accountType ("CHECKING", "SAVINGS" or "CREDIT")
         openingBalance (optional, defaults to 0, integer cents)
         userId (optional, admin only)
     OUTPUT
@@ -470,7 +470,7 @@ AccountView (as the server actually sends it)
         integer accountId,
         integer userId,
         string userName,                (only when the owner is to hand)
-        string accountType,             ("CHECKING" or "SAVINGS")
+        string accountType,             ("CHECKING", "SAVINGS" or "CREDIT")
         string status,                  ("ACTIVE" or "FROZEN")
         integer balance,                (cents - 123456 is 1,234.56)
         integer availableForWithdrawal, (cents - balance minus any minimum)

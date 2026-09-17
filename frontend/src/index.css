@@ -632,28 +632,6 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 .profile label { font-size: 1rem; }
 .profile input { font-size: 1.05rem; padding: var(--s2); }
 
-/* ------------------------------------------- account detail colour tint */
-
-/* The card carries a wash of the colour its bar wears on the home page, so
- * arriving here from a bar obviously lands on the same account.
- *
- * A pale tint rather than the full colour: the page is dark text on a card, and
- * the saturated version of these only works under white. The left edge carries
- * the full-strength colour, which is what actually makes it recognisable.
- */
-.tint-0 { background: #eefbf8; border-left: 6px solid #0f766e; }
-.tint-1 { background: #eeeefc; border-left: 6px solid #4f46e5; }
-.tint-2 { background: #f4eefd; border-left: 6px solid #7c3aed; }
-.tint-3 { background: #fdeef2; border-left: 6px solid #e11d48; }
-.tint-4 { background: #fbf3ea; border-left: 6px solid #b45309; }
-.tint-5 { background: #eaf9f2; border-left: 6px solid #047857; }
-
-/* The rows sit on the tint, so they need a surface of their own to stay
-   readable rather than inheriting the wash. */
-.tint-0 .detail-rows > div, .tint-1 .detail-rows > div,
-.tint-2 .detail-rows > div, .tint-3 .detail-rows > div,
-.tint-4 .detail-rows > div, .tint-5 .detail-rows > div { background: var(--surface); }
-
 /* ------------------------------------------------------- user search */
 
 .user-search { position: relative; }
@@ -701,3 +679,112 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 
 .picked > div { display: flex; flex-direction: column; }
 .picked button { margin-left: auto; }
+
+/* ------------------------------------------------ the credit card product
+
+   Always the same: blue card, yellow type, yellow glow. It is a different
+   product, not another account of the same kind, so it does not join the
+   six-colour rotation - you should know one on sight.
+
+   Yellow on this blue is 8.40:1, which is well past AA. Yellow on *white*
+   would be about 1.6:1, which is why the fill is not optional here. */
+.bar-credit,
+.tone-credit {
+  background: linear-gradient(135deg, #123a7d, #0b2f6b);
+  color: #facc15;
+  box-shadow: 0 0 0 2px #facc15, 0 0 18px 2px rgb(250 204 21 / 45%);
+}
+
+.bar-credit .bar-balance, .bar-credit .bar-type { color: #facc15; }
+
+/* ------------------------------------------------- account detail card */
+
+/* The whole card in the account's colour, with the rows kept white inside it.
+ * Dark text on a saturated fill is the one thing these colours cannot carry,
+ * so the fill holds the title and the balance and nothing else. */
+.account-card { color: #fff; border: none; }
+
+.account-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s4);
+}
+
+.account-card-head h1 { margin: 0; color: #fff; font-size: 1.9rem; }
+
+.account-card-balance {
+  margin-left: auto;
+  font-size: 1.9rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rows and buttons sit on their own surface so they stay readable. */
+.account-card .detail-rows > div { background: var(--surface); border-color: transparent; }
+.account-card .detail-rows dd { color: var(--text); }
+.account-card .action { background: var(--surface); border-color: transparent; }
+
+.tone-0 { background: linear-gradient(135deg, #0f766e, #134e4a); }
+.tone-1 { background: linear-gradient(135deg, #4f46e5, #3730a3); }
+.tone-2 { background: linear-gradient(135deg, #7c3aed, #5b21b6); }
+.tone-3 { background: linear-gradient(135deg, #e11d48, #9f1239); }
+.tone-4 { background: linear-gradient(135deg, #b45309, #7c2d12); }
+.tone-5 { background: linear-gradient(135deg, #047857, #064e3b); }
+
+/* On the credit card the title is yellow, not white. */
+.account-card.tone-credit h1,
+.account-card.tone-credit .account-card-balance { color: #facc15; }
+
+/* ------------------------------------------------- pickers and headings */
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s3);
+}
+
+.section-head h1 { margin: 0; }
+.open-another { margin-left: auto; width: auto; padding: var(--s2) var(--s3); }
+
+.picked-account {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border-radius: 8px;
+  color: #fff;
+}
+
+.picked-account .balance { margin-left: auto; color: inherit; }
+
+/* A thin band of the selected account's colour under the dropdown, so the
+ * choice is not carried by the words alone. */
+.picked-strip { height: 6px; border-radius: 3px; margin-top: calc(var(--s1) * -1); }
+
+/* ------------------------------------------------------- admin dashboard */
+
+/* One button, because an admin holds no accounts and every other tile on the
+ * customer dashboard is about accounts. */
+.admin-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  width: 100%;
+  padding: var(--s4);
+  border-radius: 12px;
+  background: #9e1b13;          /* 8.02:1 with white */
+  color: #fff;
+  font-size: 1.4rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.admin-cta:hover { background: #7d150f; }
+.admin-cta svg { width: 1.6rem; height: 1.6rem; }
+
+.audit-heading { font-size: 1.1rem; margin: var(--s4) 0 var(--s2); }

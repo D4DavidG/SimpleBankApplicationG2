@@ -8,7 +8,7 @@
  * one on a customer's behalf passes userId, and that belongs on the admin page,
  * not on this form. */
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/auth-context'
 import * as api from '../lib/api'
 import { parseDollars } from '../lib/money'
@@ -37,7 +37,14 @@ function parseOpeningBalance(text) {
 export default function OpenAccount() {
   const navigate = useNavigate()
   const { refreshAccounts } = useAuth()
-  const [accountType, setAccountType] = useState('CHECKING')
+  /* The credit card offer on the home page links here with ?type=CREDIT, so
+   * "Apply now" lands on this form with the right product already chosen
+   * rather than on a page where you have to find it again. */
+  const [searchParams] = useSearchParams()
+  const requested = (searchParams.get('type') || '').toUpperCase()
+  const [accountType, setAccountType] = useState(
+    ['CHECKING', 'SAVINGS', 'CREDIT'].includes(requested) ? requested : 'CHECKING',
+  )
   const [openingBalance, setOpeningBalance] = useState('')
   const [amountError, setAmountError] = useState(null)
   const [error, setError] = useState(null)
@@ -80,6 +87,7 @@ export default function OpenAccount() {
           <select value={accountType} onChange={(e) => setAccountType(e.target.value)}>
             <option value="CHECKING">Checking</option>
             <option value="SAVINGS">Savings</option>
+            <option value="CREDIT">Credit card</option>
           </select>
         </label>
 

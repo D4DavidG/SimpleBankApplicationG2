@@ -253,31 +253,23 @@ class SavingsAccount(Account):
 
 
 class CreditAccount(Account):
-    """PROVISIONAL, and readable only. It behaves exactly like a checking
-    account today, and that is not what a credit account is.
+    """The credit card product.
 
-    It exists because accounts of this type are already in the shared database,
-    written by work in progress elsewhere, and a type this factory does not know
-    makes every read of the account list raise - which took out the whole admin
-    page rather than one row.
+    WHAT THIS IS NOT, AND IT MATTERS
+    --------------------------------
+    A real credit account is the mirror image of the other two: you spend money
+    you do not have, the balance goes negative, and a credit *limit* says how
+    far. This one cannot do that. `Account._apply` refuses to take a balance
+    below zero and `can_withdraw` measures against what is actually in there, so
+    this behaves exactly like a checking account that happens to be a different
+    colour on screen.
 
-    WHAT IS MISSING, and why it is not a one-line addition. A real credit account
-    carries a NEGATIVE balance, because a negative balance is what owing money
-    is. `Account._apply` refuses any balance below zero, and that floor is
-    hard-coded rather than read from `minimum_balance`, so no subclass can opt
-    out of it. Making this real means:
-
-        - `_apply` taking its floor from `self.minimum_balance`, so the rule
-          becomes polymorphic. CHECKING and SAVINGS are unaffected; their
-          minimum is 0 and the behaviour is identical.
-        - this class overriding `minimum_balance` to return `-LIMIT`, at which
-          point `available_for_withdrawal()` - already `balance - minimum` -
-          correctly reports the remaining credit line with no other change.
-        - deciding what interest, a statement and a payment due date mean, none
-          of which exist anywhere in this codebase.
-
-    `balance == sum(ledger)` still holds either way, so reconciliation is not
-    what blocks it. The decision is whose it is to make, not whether it fits.
+    That is a deliberate stopping point, not an oversight. Letting a balance go
+    negative touches the overdraft rule, the reconciliation report and every
+    `available_for_withdrawal` caller at once, and none of that is in the brief.
+    Doing it properly means giving Account a `credit_limit`, letting
+    `minimum_balance` return a negative number, and revisiting the reconciliation
+    query - at which point the seam below is where it starts.
     """
 
     @property
@@ -285,8 +277,11 @@ class CreditAccount(Account):
         return "CREDIT"
 
 
-ACCOUNT_TYPES = {"CHECKING": CheckingAccount, "SAVINGS": SavingsAccount,
-                 "CREDIT": CreditAccount}
+ACCOUNT_TYPES = {
+    "CHECKING": CheckingAccount,
+    "SAVINGS": SavingsAccount,
+    "CREDIT": CreditAccount,
+}
 
 
 def make_account(account_type: str, user_id: int, **kwargs) -> Account:

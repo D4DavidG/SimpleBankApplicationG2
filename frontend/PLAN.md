@@ -21,54 +21,38 @@ comment that names the API call it needs and the rules that apply.
 
 ## 2. The pages
 
-| # | Route | File | Brief | Owner | Done |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `/` | `Home.jsx` | 7.1 | David | ✅ public landing + dashboard |
-| 2 | `/accounts` | `Accounts.jsx` | 7.1 | David | ✅ |
-| 3 | `/login` | `Login.jsx` | bonus | David | ✅ |
-| 4 | `/register` | `Register.jsx` | 7.2 | David | ✅ |
-| 5 | `/profile` | `Profile.jsx` | — | David | ✅ |
-| 6 | `/accounts/new` | `OpenAccount.jsx` | 7.2 | Daniel | ✅ |
-| 7 | `/accounts/:id` | `AccountDetails.jsx` | 7.3 | | |
-| 8 | `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | | ⚠️ see below |
-| 9 | `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | | ⚠️ see below |
-| 10 | `/accounts/:id/transactions` | `Transactions.jsx` | 7.6 | | |
-| 11 | `/transfer` | `Transfer.jsx` | bonus | | ⚠️ see below |
-| 12 | `/admin` | `Admin.jsx` | — | Daniel | ✅ |
-| — | *(temporary)* `/transactions` | `TransactionMenu.jsx` | 7.4/7.5 + bonus | | ✅ built |
+Every screen in brief §7 now exists.
 
-Put your name in the Owner column and in the `owner` prop on the page's `<Stub>`.
+| Route | File | Brief | Done |
+| --- | --- | --- | --- |
+| `/` | `Home.jsx` | 7.1 | ✅ landing + dashboard |
+| `/accounts` | `Accounts.jsx` | 7.1 | ✅ |
+| `/accounts/new` | `OpenAccount.jsx` | 7.2 | ✅ |
+| `/register` | `Register.jsx` | 7.2 | ✅ |
+| `/login` | `Login.jsx` | bonus | ✅ |
+| `/profile` | `Profile.jsx` | — | ✅ |
+| `/accounts/:id` | `AccountDetails.jsx` | 7.3 | ✅ |
+| `/deposit`, `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | ✅ |
+| `/withdraw`, `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | ✅ |
+| `/history`, `/accounts/:id/transactions` | `History.jsx`, `Transactions.jsx` | 7.6 | ✅ |
+| `/transfer` | `Transfer.jsx` | bonus | ✅ |
+| `/admin` | `Admin.jsx` | — | ✅ |
 
-**⚠️ `TransactionMenu.jsx` already does deposit, withdraw and transfer** — one
-component, one form, switched by a `kind` dropdown. So stubs 8, 9 and 11 are
-probably not three pages any more. Somebody needs to decide which, and it is not
-a decision to make silently:
+`TransactionMenu.jsx` is the shared money form. Deposit and Withdraw render it
+with `fixedKind`, which is why the amount parsing, the `clientTxnId` and the
+"render the balance the server returned" rule exist once rather than three times.
 
-- **Keep one screen.** Drop the three stubs and their routes; put the menu on the
-  account detail page. Fewest lines, and the brief's 7.4 and 7.5 are then two
-  states of one screen rather than two pages.
-- **Keep three routes.** Each renders `TransactionMenu` with the kind preset.
-  Matches the brief's wording literally, costs three thin files.
+**Naming and colour live in `src/lib/accounts.js`.** `accountLabel` gives
+`Checking...23`; `accountTone` gives the colour class. Both are imported rather
+than re-derived, because an account that is teal in one list and violet in
+another is worse than one with no colour at all.
 
-Either is defensible. Pick one before anyone starts building 8, 9 or 11,
-because both of those people would otherwise be rewriting work that exists.
-
-`TransactionMenu` takes its account as a **prop** and never fetches it, so
-whoever wires it in owns fetching the account and calling `refreshAccounts()`
-afterwards — see §3. It is currently reachable at `/transactions` on a temporary
-public route with a hard-coded account, marked for deletion in `App.jsx`.
-
-Note it is **not** `Transactions.jsx` (10), which is the history table.
-
-**Styling is David's, and it comes last.** The shared tokens in `src/index.css`
-are already set; leave the visual pass on your page until it works, then say so
-and it gets picked up. Use the existing classes (`card`, `form`, `error`,
-`hint`, `balance`, `badge`) rather than inventing new ones, and the pass will be
-mostly free.
-
-**Suggested split for what is genuinely still open:** 7 (account detail, which
-is where the transaction menu probably lands), 10 (history table, the one page
-with pagination), 12 (admin), and 6 (open account) wherever it fits.
+**Credit accounts** are always blue with yellow type and a yellow glow, outside
+the six-colour rotation, because they are a different product rather than
+another account of the same kind. Note the backend limit: `CreditAccount` cannot
+go negative, so today it behaves exactly like a checking account. Making it a
+real credit line means a credit limit and a negative `minimum_balance`, and its
+docstring says where to start.
 
 ## 3. Build order
 
