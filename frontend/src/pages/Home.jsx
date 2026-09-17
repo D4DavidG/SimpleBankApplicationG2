@@ -48,7 +48,15 @@ function Dashboard() {
       <h1>Welcome back, {user.name}</h1>
 
       <div className="card">
-        {accounts.length > 0 ? (
+        {/* An admin holds no accounts by design, so the customer empty state -
+            "you do not have a bank account yet" - would read as something
+            missing rather than something deliberate. */}
+        {isAdmin ? (
+          <p>
+            Staff account. Admins do not hold accounts here: the role is to freeze
+            accounts, correct balances, and read the record of both.
+          </p>
+        ) : accounts.length > 0 ? (
           <>
             <p className="hint">
               Across {accounts.length} account{accounts.length === 1 ? '' : 's'}
@@ -62,13 +70,15 @@ function Dashboard() {
 
       <div className="actions">
         {accounts.length > 0 && <Link className="action lift" to="/accounts">View accounts</Link>}
-        <Link className="action lift" to="/accounts/new">Open an account</Link>
+        {!isAdmin && <Link className="action lift" to="/accounts/new">Open an account</Link>}
         {accounts.length > 0 && <Link className="action lift" to="/transfer">Transfer money</Link>}
         <Link className="action lift" to="/profile">My details</Link>
         {isAdmin && <Link className="action lift" to="/admin">Admin tools</Link>}
       </div>
 
-      <AboutUs />
+      {/* Not on a staff dashboard: it is a public-facing panel, and on the red
+          admin theme the navy button reads as something that does not belong. */}
+      {!isAdmin && <AboutUs />}
     </div>
   )
 }
