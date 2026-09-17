@@ -9,6 +9,7 @@
  * not on this form. */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/auth-context'
 import * as api from '../lib/api'
 import { parseDollars } from '../lib/money'
 
@@ -19,17 +20,23 @@ import { parseDollars } from '../lib/money'
  * money.js is left alone - it is a shared file and Deposit and Withdraw need it
  * to keep rejecting zero.
  *
+ * The regex below is parseDollars' own rule: a whole number of dollars, or
+ * dollars and exactly two decimal places. It has to stay in step with it, so
+ * "0.0" is refused here for the same reason "1.1" is refused there - one digit
+ * after the point is as likely to be unfinished typing as it is to be a tenth.
+ *
  * Returns cents, or null when the text is genuinely unusable. */
 function parseOpeningBalance(text) {
   const trimmed = text.trim()
   if (trimmed === '') return 0
   const cents = parseDollars(trimmed)
   if (cents !== null) return cents
-  return /^\d+(\.\d{1,2})?$/.test(trimmed.replace(/[$,\s]/g, '')) ? 0 : null
+  return /^\d+(\.\d{2})?$/.test(trimmed.replace(/[$,\s]/g, '')) ? 0 : null
 }
 
 export default function OpenAccount() {
   const navigate = useNavigate()
+  const { refreshAccounts } = useAuth()
   const [accountType, setAccountType] = useState('CHECKING')
   const [openingBalance, setOpeningBalance] = useState('')
   const [amountError, setAmountError] = useState(null)
@@ -52,6 +59,10 @@ export default function OpenAccount() {
     setBusy(true)
     try {
       const { account } = await api.openAccount(accountType, cents)
+      // PLAN section 3 names deposit, withdraw and transfer, but this changes the
+      // same shared list: the nav bar counts it and switches between the
+      // "Accounts (n)" tab and "Open account" depending on how many there are.
+      await refreshAccounts()
       navigate(`/accounts/${account.accountId}`)
     } catch (err) {
       setError(err.message)

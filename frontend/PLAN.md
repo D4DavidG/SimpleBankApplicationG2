@@ -28,13 +28,13 @@ comment that names the API call it needs and the rules that apply.
 | 3 | `/login` | `Login.jsx` | bonus | David | ✅ |
 | 4 | `/register` | `Register.jsx` | 7.2 | David | ✅ |
 | 5 | `/profile` | `Profile.jsx` | — | David | ✅ |
-| 6 | `/accounts/new` | `OpenAccount.jsx` | 7.2 | | |
+| 6 | `/accounts/new` | `OpenAccount.jsx` | 7.2 | Daniel | ✅ |
 | 7 | `/accounts/:id` | `AccountDetails.jsx` | 7.3 | | |
 | 8 | `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | | ⚠️ see below |
 | 9 | `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | | ⚠️ see below |
 | 10 | `/accounts/:id/transactions` | `Transactions.jsx` | 7.6 | | |
 | 11 | `/transfer` | `Transfer.jsx` | bonus | | ⚠️ see below |
-| 12 | `/admin` | `Admin.jsx` | — | | |
+| 12 | `/admin` | `Admin.jsx` | — | Daniel | ✅ |
 | — | *(temporary)* `/transactions` | `TransactionMenu.jsx` | 7.4/7.5 + bonus | | ✅ built |
 
 Put your name in the Owner column and in the `owner` prop on the page's `<Stub>`.

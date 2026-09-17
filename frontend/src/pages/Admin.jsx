@@ -9,12 +9,14 @@
  * demonstrates nothing the account list does not, and this page is already the
  * largest in the app. */
 import { useCallback, useEffect, useState } from 'react'
+import { useAuth } from '../context/auth-context'
 import * as api from '../lib/api'
 import AdminAccountRow from '../components/AdminAccountRow'
 import AdminAuditLog from '../components/AdminAuditLog'
 import './Admin.css'
 
 export default function Admin() {
+  const { refreshAccounts } = useAuth()
   const [accounts, setAccounts] = useState([])
   const [entries, setEntries] = useState([])
   const [report, setReport] = useState(null)
@@ -25,10 +27,14 @@ export default function Admin() {
    * account's balance or status, the audit row that recorded it, and the
    * reconciliation that counts it. Refreshing only the row that changed would
    * leave the other two quietly stale, and a stale reconciliation is worse than
-   * none - it is a correctness claim about numbers it has not re-read. */
+   * none - it is a correctness claim about numbers it has not re-read.
+   *
+   * refreshAccounts is in there because an admin has accounts of their own and
+   * may well freeze or adjust one; without it the nav and the home page would
+   * keep showing the balance from before their own correction. */
   const load = useCallback(
     () =>
-      Promise.all([api.adminAccounts(), api.adminAudit(), api.adminReconciliation()])
+      Promise.all([api.adminAccounts(), api.adminAudit(), api.adminReconciliation(), refreshAccounts()])
         .then(([accountList, audit, reconciliation]) => {
           setAccounts(accountList.accounts)
           setEntries(audit.entries)
@@ -37,7 +43,7 @@ export default function Admin() {
         })
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false)),
-    [],
+    [refreshAccounts],
   )
 
   useEffect(() => {
@@ -48,7 +54,7 @@ export default function Admin() {
   if (error) return <p className="error">{error}</p>
 
   return (
-    <div className="admin">
+    <div className="admin theme-admin">
       <h1>Admin</h1>
 
       {/* The running proof that no code path has changed a balance without

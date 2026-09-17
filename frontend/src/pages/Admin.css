@@ -1,96 +1,43 @@
-/* The admin area is red, so you can tell at a glance that you are somewhere a
- * mistake is expensive. Imported by Admin.jsx. It reaches two places: the page
- * itself, through `.admin`, and the nav bar above it, through
- * `body:has(.admin)` - the bar is rendered by Layout.jsx, which belongs to the
- * design pass, so it is themed from here by the presence of the admin page
- * rather than by editing that file.
+/* The #ff0000 accent for the admin page, and nothing else.
  *
- * Almost all of the page is two variable overrides. The app was already built
- * on tokens, so redefining --navy and --blue inside this subtree turns the
- * headings, buttons, links and focus rings red without restating a single one
- * of their rules.
+ * The red itself is not here. index.css owns `.theme-admin`, which redefines
+ * --navy, --blue and --field-border; the nav bar already wears it whenever an
+ * admin is signed in, and this page wears it too (see Admin.jsx). That is one
+ * source of truth for the colour, so this file does not restate it.
  *
- * ABOUT #ff0000
- * -------------
- * Pure red is 4.00:1 against white. Contrast is symmetric, so that holds for
- * red text on white AND for white text on a red fill - it fails WCAG AA for
- * normal text (4.5:1) in both directions. It clears the 3:1 bar that borders
- * and other non-text indicators are held to (1.4.11).
- *
- * So #ff0000 is the accent in the literal sense - rules and borders - and
- * anything carrying text uses #cc0000 at 5.89:1. The red is the red that was
- * asked for; it just is not the thing you have to read.
+ * What is left is the accent proper. Pure red is 4.00:1 against white:
+ * contrast is symmetric, so that holds for red text on white AND for white
+ * text on a red fill, and it fails WCAG AA for normal text (4.5:1) both ways.
+ * It clears the 3:1 bar that borders and other non-text indicators are held to
+ * (1.4.11). So #ff0000 is used only where it carries no text - the rule under
+ * the page title and the stripe down each card - and everything readable is
+ * left to the theme's tokens at 8:1 and better.
  */
 
-:root {
-  --admin-accent: #ff0000;   /* 4.00:1 on white - non-text only */
-  --admin-ink: #cc0000;      /* 5.89:1 with white - text and fills */
-  --admin-ink-dark: #990000; /* 8.92:1 with white - hover, and buttons on the red bar */
-}
-
-/* ------------------------------------------------------------------- page */
-
 .admin {
-  /* The two overrides that do the work, focus outline included. */
-  --navy: var(--admin-ink);
-  --blue: var(--admin-ink);
+  --admin-accent: #ff0000; /* 4.00:1 on white - non-text only: borders and rules */
 }
 
-/* index.css hard-codes the button hover as a darker navy rather than a token,
- * so it is the one rule that has to be restated. */
-.admin button:hover:not(:disabled) {
-  background: var(--admin-ink-dark);
-}
-
-/* The accent proper: a rule under the page title and a stripe down each card.
- * Both non-text, both well clear of 3:1. */
 .admin h1 {
   border-bottom: 3px solid var(--admin-accent);
   padding-bottom: 0.4rem;
-}
-
-.admin h2 {
-  color: var(--admin-ink);
-  font-size: 1.1rem;
-  margin-top: 1.5rem;
 }
 
 .admin .card {
   border-left: 4px solid var(--admin-accent);
 }
 
-/* ---------------------------------------------------------------- nav bar */
-/* Only while the admin page is on screen. Every other route keeps the navy. */
-
-body:has(.admin) .nav {
-  background: var(--admin-ink);
+/* --navy, so this follows the theme rather than hard-coding a second red. */
+.admin h2 {
+  color: var(--navy);
+  font-size: 1.1rem;
+  margin-top: 1.5rem;
 }
 
-/* The nav's links and brand are already #fff, which is 5.89:1 on this red. The
- * one exception is the Admin link below, which is tinted on the navy bar and
- * has to go back to white here - #ff8a8a on red is 2.59:1. */
-body:has(.admin) .nav-links a[href="/admin"] {
-  color: #fff;
-}
-
-/* Log out is a button, so it inherits the global navy fill. On a red bar that
- * reads as a stray blue chip. */
-body:has(.admin) .nav button {
-  background: var(--admin-ink-dark);
-  border-color: var(--admin-ink-dark);
-}
-
-/* The global focus ring is --blue, and #056dae on this red is 1.07:1 - the
- * outline would effectively vanish on the bar. Focus is never allowed to
- * disappear, so it goes white here: 5.89:1. */
-body:has(.admin) .nav :focus-visible {
-  outline-color: #fff;
-}
-
-/* --------------------------------------------------------- the way in */
-/* Flagged on the navy bar, so the red starts before you arrive. Pure red would
- * be 2.82:1 there and unreadable; #ff8a8a is 4.98:1. */
-
-.nav-links a[href="/admin"] {
-  color: #ff8a8a;
+/* index.css hard-codes the button hover as a darker navy instead of a token, so
+ * a themed button is red until you hover it and then turns blue. Restated here
+ * for this page; the nav's Log out button has the same problem, and fixing it
+ * for everyone is one line in index.css. #85170f is 9.87:1 with white. */
+.admin button:hover:not(:disabled) {
+  background: #85170f;
 }
