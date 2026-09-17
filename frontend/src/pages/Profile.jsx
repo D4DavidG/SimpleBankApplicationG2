@@ -47,7 +47,14 @@ export default function Profile() {
 
   return (
     <div className="card profile">
-      <h1>My details</h1>
+      {/* Title left, edit right, on one line - so the button is somewhere
+          predictable whether the card is short or long. */}
+      <div className="profile-head">
+        <h1>My details</h1>
+        {!editing && (
+          <button className="edit-circle lift" onClick={startEditing}>Edit</button>
+        )}
+      </div>
 
       {editing ? (
         <form onSubmit={handleSubmit}>
@@ -73,15 +80,20 @@ export default function Profile() {
         </form>
       ) : (
         <>
-          <dl className="details">
-            <dt>Name</dt><dd>{user.name}</dd>
-            <dt>Email</dt><dd>{user.email}</dd>
-            <dt>Role</dt><dd>{user.role}{isAdmin && <span className="nav-role">ADMIN</span>}</dd>
-            <dt>Member since</dt><dd>{formatDate(user.createdAt)}</dd>
-            <dt>Accounts</dt><dd>{accounts.length}</dd>
+          {/* One boxed row per fact, label left and value right. Wrapping each
+              dt/dd pair in a div is allowed in a <dl> and is what lets the pair
+              be laid out as a single row. */}
+          <dl className="detail-rows">
+            <div><dt>Name</dt><dd>{user.name}</dd></div>
+            <div><dt>Email</dt><dd>{user.email}</dd></div>
+            <div>
+              <dt>Role</dt>
+              <dd>{user.role}{isAdmin && <span className="nav-role">ADMIN</span>}</dd>
+            </div>
+            <div><dt>Member since</dt><dd>{formatDate(user.createdAt)}</dd></div>
+            <div><dt>Accounts</dt><dd>{accounts.length}</dd></div>
           </dl>
           {saved && <p className="hint">Saved.</p>}
-          <button onClick={startEditing}>Edit</button>
         </>
       )}
     </div>

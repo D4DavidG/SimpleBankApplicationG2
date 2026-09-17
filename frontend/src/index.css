@@ -103,8 +103,10 @@ body {
 
 .page {
   max-width: var(--page-w);
-  margin: var(--s4) auto;
-  padding: 0 var(--s4);
+  margin: var(--s4) auto 0;
+  /* Generous room underneath. Without it the last section - usually About us,
+   * which grows when opened - ends flush against the bottom of the window. */
+  padding: 0 var(--s4) calc(var(--s5) * 2);
 }
 
 /* ---------------------------------------------------------------- pieces */
@@ -343,7 +345,8 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 @media (prefers-reduced-motion: reduce) {
   .lift { transition: box-shadow 150ms ease; }
   .lift:hover, .lift:focus-visible { transform: none; }
-  .about, .about-body { transition: none; }
+  .about, .about-body, .about-body > div { transition: none; }
+  .about-body > div { opacity: 1; transform: none; }
   .promo { animation: none; }
 }
 
@@ -425,7 +428,13 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 .about {
   max-width: 24rem;
   margin: var(--s5) auto 0;
-  transition: max-width 400ms ease, margin 400ms ease;
+  /* Decelerating curve rather than `ease`: it leaves quickly and settles
+   * slowly, which is what reads as smooth instead of mechanical. The same
+   * curve and duration on every property here, so the width, the height and
+   * the fade finish together rather than in three separate steps. */
+  transition:
+    max-width 550ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin 550ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Open, it breaks out past the page rail - wider than the content above, which
@@ -452,11 +461,23 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 .about-body {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 400ms ease;
+  transition: grid-template-rows 550ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .about.open .about-body { grid-template-rows: 1fr; }
-.about-body > div { overflow: hidden; }
+
+/* The content fades and lifts as the row opens. Without this the cards are
+ * fully drawn from the first frame and simply get cropped less, which is the
+ * part that looked abrupt. Slightly slower than the row, and delayed, so the
+ * space is already there by the time they arrive. */
+.about-body > div {
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-0.5rem);
+  transition: opacity 400ms ease 120ms, transform 400ms ease 120ms;
+}
+
+.about.open .about-body > div { opacity: 1; transform: none; }
 
 /* Four equal columns on one row. A grid rather than flex-wrap, because wrap
  * would drop the fourth card onto a line of its own the moment things got
@@ -551,11 +572,63 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 /* ------------------------------------------------------------- profile */
 
 /* The details page was a 420px column of 0.9rem text, which is a lot of
- * squinting for the one page that exists to be read. */
-.profile { max-width: 46rem; font-size: 1.05rem; }
-.profile h1 { font-size: 1.8rem; }
-.profile .details { gap: var(--s2) var(--s4); margin-bottom: var(--s4); }
-.profile .details dt { font-size: 1rem; }
-.profile .details dd { font-size: 1.15rem; font-weight: 600; }
+ * squinting for the one page that exists to be read.
+ *
+ * `margin-inline: auto` is what centres it. A .card is a block, so without it
+ * the max-width just leaves it hugging the left. */
+.profile {
+  max-width: 46rem;
+  margin-inline: auto;
+  padding: var(--s4);
+  font-size: 1.05rem;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+
+.profile-head h1 { margin: 0; font-size: 1.8rem; }
+
+/* A circle, so equal width and height and a radius past half of it. Pushed to
+ * the right edge by the margin rather than by justify-content, so the title
+ * keeps its natural width. */
+.edit-circle {
+  margin-left: auto;
+  width: 4.5rem;
+  height: 4.5rem;
+  flex: none;
+  border-radius: 50%;
+  font-size: 1rem;
+}
+
+/* Each fact in its own box: label left, value right. */
+.detail-rows { margin: 0 0 var(--s3); }
+
+.detail-rows > div {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.detail-rows dt { font-size: 1rem; color: var(--muted); }
+
+.detail-rows dd {
+  margin: 0 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
+
 .profile label { font-size: 1rem; }
 .profile input { font-size: 1.05rem; padding: var(--s2); }
