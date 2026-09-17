@@ -158,13 +158,14 @@ code { background: var(--bg); padding: 0.1rem 0.3rem; border-radius: 3px; font-s
 
 /* ------------------------------------------------- the staff (admin) theme
  *
- * Custom properties inherit, so redefining the brand tokens on one wrapper
- * recolours everything inside it without a single component knowing about it.
- * That is the whole mechanism - there is no admin stylesheet.
+ * Custom properties inherit, so putting this class on an element recolours
+ * everything inside it without a single component knowing about it. That is the
+ * whole mechanism - there is no admin stylesheet. The nav bar wears it whenever
+ * an admin is signed in or the route is under /admin.
  *
  * The point is not decoration. You should always be able to tell at a glance
- * which context you are acting in, because one of these two can freeze accounts
- * and adjust balances.
+ * which context you are acting in, because an admin can freeze accounts and
+ * adjust balances.
  */
 .theme-admin {
   --navy: #9e1b13;         /* 8.02:1 with white - headings, buttons, nav bar */
@@ -173,17 +174,7 @@ code { background: var(--bg); padding: 0.1rem 0.3rem; border-radius: 3px; font-s
   --bg: #fdf6f5;
 }
 
-/* Tokens above, layout here, so the theme can go on the nav bar without
- * dragging a page's padding along with it. The nav takes `.theme-admin` alone;
- * the two staff pages take both. */
-.admin-page {
-  min-height: 70vh;
-  margin: -2rem -1.5rem;
-  padding: 2rem 1.5rem;
-  background: var(--bg);
-}
 
-.admin-page .card { border-color: #e8c9c6; }
 
 /* -------------------------------------------------------- nav: name + role */
 
@@ -240,34 +231,40 @@ button.secondary {
   color: var(--navy);
 }
 
-/* The way through to the other kind of sign-in. Fixed to the corner so it never
- * competes with the form, which is what almost everyone is here for.
- *
- * Each one is painted in the colour of the side it leads TO, not the side it
- * sits on: the staff link is red on the blue customer pages, the customer link
- * is blue on the red staff pages. So these two are the one place that must not
- * read --navy - inside `.theme-admin` that token is already red, and the button
- * would vanish into the page it is trying to lead away from. Literal values,
- * deliberately.
- */
-.corner-link {
-  position: fixed;
-  bottom: 1rem;
-  left: 1rem;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  font-size: 0.85rem;
-  font-weight: 600;
-  text-decoration: none;
-  color: #fff;
+/* ----------------------------------------------- reveal toggle and dialog */
+
+/* The button sits on top of the right-hand end of the field, so the field keeps
+ * its own full width and nothing has to be measured. */
+.secret-field { position: relative; display: flex; }
+.secret-field input { flex: 1; padding-right: 2.75rem; }
+
+.reveal {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  bottom: 1px;
+  width: 2.5rem;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0 4px 4px 0;
+  background: transparent;
+  font-size: 1rem;
+  line-height: 1;
 }
 
-.corner-link.staff    { background: #9e1b13; }  /* 8.02:1 with white  */
-.corner-link.customer { background: #003b70; }  /* 11.29:1 with white */
+.reveal:hover { background: var(--bg); }
 
-.corner-link.staff:hover    { background: #7d150f; }
-.corner-link.customer:hover { background: #00294e; }
+/* A native <dialog> comes with no styling and a full-page ::backdrop. */
+dialog {
+  max-width: 26rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  color: var(--text);
+  background: var(--surface);
+}
+
+dialog::backdrop { background: rgb(0 0 0 / 45%); }
+dialog h2 { margin-top: 0; font-size: 1.1rem; color: var(--navy); }
+dialog .row { margin-top: 1rem; flex-wrap: wrap; }

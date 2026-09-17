@@ -41,35 +41,37 @@ Log in with a seeded user: `aaron.forrester@example.com`, password
 | `src/context/AuthContext.jsx` | Login, register, logout, the stored token, the profile edit, and the account list. |
 | `src/context/auth-context.js` | The `useAuth()` hook. |
 | `src/components/RequireAuth.jsx` | Route guard: redirects to `/login`, or away from `/admin` for a non-admin. |
-| `src/components/Layout.jsx` | Nav bar and page frame. |
+| `src/components/Layout.jsx` | Nav bar and page frame. Turns red in admin context. |
+| `src/components/SecretInput.jsx` | A hidden field with an eye to reveal it. Used for passwords and the team code. |
 | `src/App.jsx` | Every route, in one table. |
 | `src/index.css` | Placeholder styles. Nobody is attached to these. |
 
-Working already: `/` (home), `/accounts`, `/login`, `/register`, `/profile`,
-`/admin/login` and `/admin/register`. They are plain but real, so the pages you
-build have live data and real account ids to work against.
+Working already: `/` (home), `/accounts`, `/login`, `/register` and `/profile`.
+They are plain but real, so the pages you build have live data and real account
+ids to work against.
 
 ### Staff accounts
 
-The two pages at `/admin/login` and `/admin/register` are reached from the small
-link in the bottom-left corner of the customer login and register pages, and they
-are red rather than navy so the context is obvious.
+There is one login page and one register page, for everybody. Staff are not a
+separate door — what makes somebody an admin is the role on their account, which
+the server re-checks on every admin request.
 
-Both ask for the team code, but the two codes do different amounts of work and
-it is worth knowing which is which.
+The register form carries an optional **team code**. Leave it empty and you get
+an ordinary customer account. Fill it in correctly and you get an admin one.
 
-**On `/admin/register` it is a real check.** The code goes to the server as
-`adminCode` and is compared against `BANK_ADMIN_CODE` from `.env`. Get it wrong
-and you get a 403 and no user at all. If `BANK_ADMIN_CODE` is not set, admin
-registration is closed and any code is refused.
+**The code is never checked in the browser.** It is sent to the server as
+`adminCode` and compared against `BANK_ADMIN_CODE` from `.env`. Grep the built
+bundle for the code and you will not find it, which is the whole point — a
+comparison written in JavaScript ships to the browser and stops nobody.
 
-**On `/admin/login` it is a speed bump.** It is checked in the browser, because
-`POST /api/auth/login` takes an email and a password and nothing else — there is
-nowhere to send a code. Anyone can read it out of the bundle, and anyone who
-signs in at `/login` instead gets the same session. That is fine: the code is not
-what protects anything. Your role comes from your account, and the server
-re-checks it on every admin request. Do not add a browser-side check anywhere it
-is meant to actually stop someone.
+A wrong code comes back as a 403 that creates no user at all, and the page then
+asks whether an ordinary account was what you meant. Saying yes sends the request
+again with no code in it; the rejected code is not stored, logged or resent. If
+`BANK_ADMIN_CODE` is not set on the server, admin registration is closed and
+every code is refused.
+
+The nav bar turns red once an admin is signed in, so the context is never in
+doubt.
 
 ## What is waiting to be claimed
 

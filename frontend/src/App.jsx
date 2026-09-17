@@ -7,8 +7,6 @@ import RequireAuth from './components/RequireAuth'
 
 import Login from './pages/Login'
 import Register from './pages/Register'
-import AdminLogin from './pages/AdminLogin'
-import AdminRegister from './pages/AdminRegister'
 import Home from './pages/Home'
 import Accounts from './pages/Accounts'
 import Profile from './pages/Profile'
@@ -45,11 +43,6 @@ export default function App() {
             {/* public */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            {/* The staff door. Public, like any login page - what makes somebody
-                an admin is the role on their account, which the server checks on
-                every admin request. Hiding a URL has never stopped anybody. */}
-            <Route path="/admin/login" element={<AdminLogin />} />
-            <Route path="/admin/register" element={<AdminRegister />} />
 
             {/* TEMPORARY: public, with a made-up account, so the test link on
               * /login can reach it. TransactionMenu takes its account as a

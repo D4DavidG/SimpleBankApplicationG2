@@ -109,11 +109,12 @@ auth context because the nav bar and the home page both read it. A deposit,
 withdrawal or transfer that does not refresh it leaves both showing the old
 balance. `const { refreshAccounts } = useAuth()`.
 
-**Admin role comes from `BANK_ADMIN_CODE`, checked server-side.** Registering
-with a matching `adminCode` creates an ADMIN — see `api._role_for`. The same
-code also appears in `AdminLogin.jsx`, checked in the browser, where it is a
-signpost and not a control: login takes no code, so there is nowhere to send it.
-Never rely on a browser-side check for anything that has to actually hold.
+**Admin role comes from `BANK_ADMIN_CODE`, checked server-side.** There is one
+register form for everybody, with an optional team code on it. A matching code
+creates an ADMIN; a wrong one is a 403 that creates nobody, which is what the
+"are you sure?" dialog on that page reacts to. The code exists nowhere in the
+frontend — grep the bundle and you will not find it — because a comparison
+written in JavaScript ships to the browser and stops nobody. See `api._role_for`.
 
 **All backend code is standard library only.** `requirements.txt` exists for
 pymongo and nothing else. Keep it that way.

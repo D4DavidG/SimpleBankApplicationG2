@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/auth-context'
+import SecretInput from '../components/SecretInput'
 
 export default function Login() {
   const { login } = useAuth()
@@ -25,7 +26,6 @@ export default function Login() {
   }
 
   return (
-    <>
     <div className="card narrow">
       <h1>Log in</h1>
       <form onSubmit={handleSubmit}>
@@ -33,15 +33,12 @@ export default function Login() {
           Email
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
+        <SecretInput
+          label="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={busy}>{busy ? 'Logging in...' : 'Log in'}</button>
       </form>
@@ -55,9 +52,5 @@ export default function Login() {
         <code>BankDemo123!</code>.
       </p>
     </div>
-    {/* Staff door. Tucked in the corner because almost nobody using this is
-        staff, and it should not compete with the form. */}
-    <Link className="corner-link staff" to="/admin/login">Staff sign-in</Link>
-    </>
   )
 }

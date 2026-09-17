@@ -27,22 +27,20 @@ comment that names the API call it needs and the rules that apply.
 | 2 | `/accounts` | `Accounts.jsx` | 7.1 | David | ✅ |
 | 3 | `/login` | `Login.jsx` | bonus | David | ✅ |
 | 4 | `/register` | `Register.jsx` | 7.2 | David | ✅ |
-| 5 | `/admin/login` | `AdminLogin.jsx` | — | David | ✅ |
-| 6 | `/admin/register` | `AdminRegister.jsx` | — | David | ✅ |
-| 7 | `/profile` | `Profile.jsx` | — | David | ✅ |
-| 8 | `/accounts/new` | `OpenAccount.jsx` | 7.2 | | |
-| 9 | `/accounts/:id` | `AccountDetails.jsx` | 7.3 | | |
-| 10 | `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | | ⚠️ see below |
-| 11 | `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | | ⚠️ see below |
-| 12 | `/accounts/:id/transactions` | `Transactions.jsx` | 7.6 | | |
-| 13 | `/transfer` | `Transfer.jsx` | bonus | | ⚠️ see below |
-| 14 | `/admin` | `Admin.jsx` | — | | |
+| 5 | `/profile` | `Profile.jsx` | — | David | ✅ |
+| 6 | `/accounts/new` | `OpenAccount.jsx` | 7.2 | | |
+| 7 | `/accounts/:id` | `AccountDetails.jsx` | 7.3 | | |
+| 8 | `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | | ⚠️ see below |
+| 9 | `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | | ⚠️ see below |
+| 10 | `/accounts/:id/transactions` | `Transactions.jsx` | 7.6 | | |
+| 11 | `/transfer` | `Transfer.jsx` | bonus | | ⚠️ see below |
+| 12 | `/admin` | `Admin.jsx` | — | | |
 | — | *(temporary)* `/transactions` | `TransactionMenu.jsx` | 7.4/7.5 + bonus | | ✅ built |
 
 Put your name in the Owner column and in the `owner` prop on the page's `<Stub>`.
 
 **⚠️ `TransactionMenu.jsx` already does deposit, withdraw and transfer** — one
-component, one form, switched by a `kind` dropdown. So stubs 10, 11 and 13 are
+component, one form, switched by a `kind` dropdown. So stubs 8, 9 and 11 are
 probably not three pages any more. Somebody needs to decide which, and it is not
 a decision to make silently:
 
@@ -52,7 +50,7 @@ a decision to make silently:
 - **Keep three routes.** Each renders `TransactionMenu` with the kind preset.
   Matches the brief's wording literally, costs three thin files.
 
-Either is defensible. Pick one before anyone starts building 10, 11 or 13,
+Either is defensible. Pick one before anyone starts building 8, 9 or 11,
 because both of those people would otherwise be rewriting work that exists.
 
 `TransactionMenu` takes its account as a **prop** and never fetches it, so
@@ -60,7 +58,7 @@ whoever wires it in owns fetching the account and calling `refreshAccounts()`
 afterwards — see §3. It is currently reachable at `/transactions` on a temporary
 public route with a hard-coded account, marked for deletion in `App.jsx`.
 
-Note it is **not** `Transactions.jsx` (12), which is the history table.
+Note it is **not** `Transactions.jsx` (10), which is the history table.
 
 **Styling is David's, and it comes last.** The shared tokens in `src/index.css`
 are already set; leave the visual pass on your page until it works, then say so
@@ -68,20 +66,20 @@ and it gets picked up. Use the existing classes (`card`, `form`, `error`,
 `hint`, `balance`, `badge`) rather than inventing new ones, and the pass will be
 mostly free.
 
-**Suggested split for what is genuinely still open:** 9 (account detail, which
-is where the transaction menu probably lands), 12 (history table, the one page
-with pagination), 14 (admin), and 8 (open account) wherever it fits.
+**Suggested split for what is genuinely still open:** 7 (account detail, which
+is where the transaction menu probably lands), 10 (history table, the one page
+with pagination), 12 (admin), and 6 (open account) wherever it fits.
 
 ## 3. Build order
 
 0. **Settle the TransactionMenu question above first.** Everything else in this
    list assumes an answer to it.
-1. **Account detail (9).** Mostly display, and it is the natural home for the
+1. **Account detail (7).** Mostly display, and it is the natural home for the
    transaction menu, so wiring the two together finishes three of the brief's
    five core capabilities at once.
-2. **Transactions (12).** The history table, and the only page with pagination.
-3. **Open account (8).** A two-field form.
-4. **Admin (14).** Bonus surface.
+2. **Transactions (10).** The history table, and the only page with pagination.
+3. **Open account (6).** A two-field form.
+4. **Admin (12).** Bonus surface.
 
 Adding a page means a file in `src/pages/` and a line in `src/App.jsx`. Nothing
 else.
@@ -129,13 +127,13 @@ Citi's palette: deep navy `#003b70`, a brighter blue `#056dae` for links, and th
 red from the arc over the "t" for errors and debits. All tokens are in
 `src/index.css` with their contrast ratios recorded in comments beside them.
 
-**The staff pages are red.** `/admin/login` and `/admin/register` wrap themselves
-in `.theme-admin`, which redefines `--navy`, `--blue`, `--field-border` and
-`--bg` for everything inside it. Custom properties inherit, so that one class
-recolours the whole subtree and no component knows it happened — there is no
-second stylesheet. The point is not decoration: you should be able to tell at a
-glance which context you are in, because one of the two can freeze accounts and
-adjust balances.
+**The nav bar turns red in admin context** — when an admin is signed in, or the
+route is under `/admin`. It works by putting `.theme-admin` on the `<header>`,
+which redefines `--navy`, `--blue`, `--field-border` and `--bg` for everything
+inside it. Custom properties inherit, so that one class recolours the whole
+subtree and no component knows it happened — there is no second stylesheet. The
+point is not decoration: you should be able to tell at a glance which context you
+are in, because an admin can freeze accounts and adjust balances.
 
 We use the colours and not the marks — no Citi logo, wordmark or name anywhere.
 A practice page borrowing a palette is fine; one carrying a real bank's branding
