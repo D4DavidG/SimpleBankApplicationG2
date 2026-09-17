@@ -110,6 +110,8 @@ Open Account
         openingBalance is not a valid amount
         you are not an admin and asked to open the account for another user
         the userId you named does not exist
+        the account would belong to an admin - an admin does not hold accounts,
+            so this is refused even when an admin asks for it for themselves
 
 Transaction History
     PATH: /api/accounts/{accountId}/transactions

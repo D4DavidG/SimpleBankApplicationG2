@@ -58,12 +58,12 @@ export default function App() {
             {/* customer */}
             <Route path="/profile" element={auth(<Profile />)} />
             <Route path="/accounts" element={auth(<Accounts />)} />
-            <Route path="/accounts/new" element={auth(<OpenAccount />)} />
+            <Route path="/accounts/new" element={<RequireAuth customer><OpenAccount /></RequireAuth>} />
             <Route path="/accounts/:accountId" element={auth(<AccountDetails />)} />
             <Route path="/accounts/:accountId/deposit" element={auth(<Deposit />)} />
             <Route path="/accounts/:accountId/withdraw" element={auth(<Withdraw />)} />
             <Route path="/accounts/:accountId/transactions" element={auth(<Transactions />)} />
-            <Route path="/transfer" element={auth(<Transfer />)} />
+            <Route path="/transfer" element={<RequireAuth customer><Transfer /></RequireAuth>} />
 
             {/* admin */}
             <Route path="/admin" element={<RequireAuth admin><Admin /></RequireAuth>} />

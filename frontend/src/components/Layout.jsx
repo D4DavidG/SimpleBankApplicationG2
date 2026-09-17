@@ -26,10 +26,13 @@ export default function Layout() {
           <NavLink to="/" end>Home</NavLink>
           {/* Only worth a tab once there is something behind it. A visitor and a
               new customer both see "Open account" instead. */}
-          {accounts.length > 0
+          {/* An admin holds no accounts and makes no transfers, so neither of
+              these has anything behind it for them. The backend refuses both
+              regardless; this is just not offering what it would refuse. */}
+          {!isAdmin && (accounts.length > 0
             ? <NavLink to="/accounts">Accounts ({accounts.length})</NavLink>
-            : <NavLink to="/accounts/new">Open account</NavLink>}
-          {user && <NavLink to="/transfer">Transfer</NavLink>}
+            : <NavLink to="/accounts/new">Open account</NavLink>)}
+          {user && !isAdmin && <NavLink to="/transfer">Transfer</NavLink>}
           {isAdmin && <NavLink to="/admin">Admin</NavLink>}
         </nav>
 

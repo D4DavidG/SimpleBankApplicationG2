@@ -95,6 +95,15 @@ authoritative account beside the transaction. Render that.
 account belonging to someone else reads as 404, not 403. Do not add a route that
 takes an account id without going through `service.get_account_for`.
 
+**An admin holds no accounts.** The role is supervisory - freeze, adjust,
+read the audit log - and every one of those powers is over somebody else's
+money. An admin who also banked here could freeze their own account, adjust
+their own balance and sign off on both, so `open_account` refuses an admin as
+the owner and the nav hides the account and transfer tabs for them. Seed
+accounts 8, 11 and 12 used to belong to the two admins and were moved to
+customers rather than deleted, because the account numbers are positional and
+`EXPECTED_BALANCES` keys off them.
+
 **The ledger is append-only.** A correction is a new entry in the opposite
 direction. If you ever write an update to a transaction, the design has gone
 wrong. `GET /api/admin/reconciliation` is the running proof and should always

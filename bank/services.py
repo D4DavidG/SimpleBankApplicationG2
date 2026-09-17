@@ -158,7 +158,21 @@ class BankService:
                      opening_balance: int = 0) -> Account:
         """Opening balance is in cents, and is not a free gift. If it is non-zero
         it gets a ledger entry like any other credit, or reconciliation is broken
-        before the account is a second old."""
+        before the account is a second old.
+
+        AN ADMIN DOES NOT HOLD ACCOUNTS. The role exists to freeze accounts,
+        correct balances and read the audit log, and every one of those powers is
+        over somebody else's money. An admin who also banks here is their own
+        supervisor: they could freeze their own account, adjust their own
+        balance, and sign off on both in the same audit row. Refusing the account
+        is cheaper than writing the rules that would have to police it.
+
+        An admin may still open an account *for a customer* - that goes through
+        the same call with the customer as `owner`, which is why the check is on
+        the owner and not on the caller.
+        """
+        if owner.is_admin:
+            raise NotAuthorized("an admin does not hold accounts")
         # parse_amount rejects zero, so an opening balance of zero skips it
         # entirely rather than being validated into a spurious error. Opening an
         # empty account is a normal thing to do; depositing nothing is not.

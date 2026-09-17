@@ -478,6 +478,21 @@ class TestOwnershipOverHttp(ApiTestCase):
         self.assertEqual(status, 201)
         self.assertEqual(body["account"]["userId"], self.erik.user_id)
 
+    def test_an_admin_may_not_open_an_account_for_themselves(self):
+        """The role is supervisory. An admin who also banks here could freeze
+        their own account and adjust their own balance, so they do not get one."""
+        status, body = self.post("/api/accounts", {"accountType": "CHECKING"},
+                                 self.david)
+        self.assertEqual(status, 403)
+        self.assertIn("admin", body["error"])
+
+    def test_an_admin_may_not_open_an_account_for_themselves_by_id(self):
+        """Naming your own id in the body is the same request in a costume."""
+        status, _ = self.post("/api/accounts", {
+            "userId": self.david.user_id, "accountType": "CHECKING",
+        }, self.david)
+        self.assertEqual(status, 403)
+
 # ================================================================ money moves
 
 class TestMoneyOverHttp(ApiTestCase):
@@ -725,6 +740,16 @@ class TestSeedData(unittest.TestCase):
         self.assertEqual(self.store.get_account(10).status, "FROZEN")
         self.assertEqual(self.store.get_account(11).account_type, "CHECKING")
         self.assertEqual(self.store.get_account(4).balance, 0)
+
+    def test_no_seeded_account_belongs_to_an_admin(self):
+        """The two admins in the roster hold nothing. Accounts 8, 11 and 12 used
+        to be theirs and were moved to customers rather than deleted, because the
+        account numbers are positional and the document keys off them."""
+        admins = {u.user_id for u in self.store.all_users() if u.is_admin}
+        self.assertEqual(len(admins), 2)
+        owned = [a.account_id for a in self.store.all_accounts()
+                 if a.user_id in admins]
+        self.assertEqual(owned, [])
 
     def test_seeding_twice_is_refused(self):
         with self.assertRaises(RuntimeError):

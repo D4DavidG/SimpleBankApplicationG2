@@ -79,9 +79,14 @@ ACCOUNTS = [
     (3, "CHECKING", False), (3, "SAVINGS", False),
     (4, "CHECKING", False),
     (5, "CHECKING", False),
-    (6, "CHECKING", False),
+    # Accounts 8, 11 and 12 used to belong to users 6 and 8, who are the two
+    # admins. An admin does not hold an account (see BankService.open_account),
+    # so they were moved to customers rather than deleted: the ids are positional
+    # and EXPECTED_BALANCES, the ledger below and the docs all key off them.
+    (5, "CHECKING", False),                           # account 8, was user 6
     (7, "CHECKING", False), (7, "SAVINGS", True),     # account 10 ends up FROZEN
-    (8, "CHECKING", False), (8, "SAVINGS", False),
+    (9, "CHECKING", False),                           # account 11, was user 8
+    (10, "SAVINGS", False),                           # account 12, was user 8
     (9, "CHECKING", False),
     (10, "CHECKING", False),
     (11, "CHECKING", False),
