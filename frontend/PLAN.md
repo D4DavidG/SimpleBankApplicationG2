@@ -141,7 +141,7 @@ Pieces worth knowing about, because they are shared:
   drops the scaling under `prefers-reduced-motion`.
 - **"Remember me" really does something.** Ticked, the token goes in
   `localStorage` and survives closing the browser; unticked, `sessionStorage`
-  and it does not. The token still expires after an hour either way.
+  and it does not. The token still expires after a week either way.
 
 ## 6. Theme
 

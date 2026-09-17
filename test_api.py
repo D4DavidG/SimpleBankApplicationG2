@@ -29,10 +29,9 @@ from bank import BankAPI, BankService, BankStore
 from bank import seed as seed_module
 from bank.api import make_handler_class
 from bank.models import SavingsAccount
-from bank.security import hash_password, issue_token, read_token, verify_password
+from bank.security import hash_password, new_token, verify_password
 
 PASSWORD = "CorrectHorse1!"
-SECRET = "test-signing-secret-not-used-anywhere-real"
 
 # PBKDF2 at the production 600,000 rounds costs about 0.6 seconds per call, which
 # is the entire point of the setting and completely wrong for a test suite - at
@@ -55,7 +54,7 @@ class ApiTestCase(unittest.TestCase):
     def setUp(self):
         self.store = BankStore()
         self.svc = BankService(self.store)
-        self.api = BankAPI(self.svc, secret=SECRET)
+        self.api = BankAPI(self.svc)
 
         self.aaron = self.svc.register_user("Aaron Forrester", "aaron@example.com",
                                             password_hash=SHARED_HASH)
@@ -67,6 +66,7 @@ class ApiTestCase(unittest.TestCase):
         self.a_checking = self.svc.open_account(self.aaron, "CHECKING", 10000)
         self.a_savings = self.svc.open_account(self.aaron, "SAVINGS", 50000)
         self.e_checking = self.svc.open_account(self.erik, "CHECKING", 8421075)
+        self._tokens: dict[int, str] = {}   # see token_for
 
     def tearDown(self):
         """Same invariant as test_bank.py, asserted after every HTTP call too: no
@@ -77,7 +77,16 @@ class ApiTestCase(unittest.TestCase):
     # -- helpers ---------------------------------------------------------
 
     def token_for(self, user) -> str:
-        return issue_token(user.user_id, user.role, SECRET)
+        """A real session, through the service, not a hand-built string. Tokens
+        are stored rows now, so one that skipped `issue_token` would not exist as
+        far as `_authenticate` is concerned.
+
+        Cached per user, so a test making six calls holds one session rather than
+        six. A test that cares about issuing more than one calls the service.
+        """
+        if user.user_id not in self._tokens:
+            self._tokens[user.user_id] = self.svc.issue_token(user).token
+        return self._tokens[user.user_id]
 
     def auth(self, user) -> dict:
         return {"authorization": f"Bearer {self.token_for(user)}"}
@@ -108,23 +117,32 @@ class TestAuthentication(ApiTestCase):
                                     {"authorization": "Bearer not-a-real-token"})
         self.assertEqual(status, 401)
 
-    def test_a_tampered_token_is_rejected(self):
-        """Flip the role in the payload and the signature stops matching.
+    def test_a_token_that_was_never_issued_is_rejected(self):
+        """A correctly shaped token that is not in the tokens table is nobody's.
 
-        This is the whole reason the token is signed. Without the HMAC, promoting
-        yourself to ADMIN would be a base64 edit away.
+        This is what replaced the signature check. The token carries no claims to
+        forge, so the only way to hold one is to be given it: a well-formed guess
+        fails for the same reason "not-a-real-token" does, which is that the
+        lookup comes back empty.
         """
-        forged = issue_token(self.aaron.user_id, "ADMIN", "a-different-secret")
         status, _ = self.api.handle("GET", "/api/admin/users", b"",
-                                    {"authorization": f"Bearer {forged}"})
+                                    {"authorization": f"Bearer {new_token()}"})
         self.assertEqual(status, 401)
 
     def test_an_expired_token_is_rejected(self):
-        expired = issue_token(self.aaron.user_id, "CUSTOMER", SECRET, ttl=-1)
-        self.assertIsNone(read_token(expired, SECRET))
+        expired = self.svc.issue_token(self.aaron, ttl=-1).token
+        # The row is still there; what fails is the expiry check, not the lookup.
+        self.assertIsNotNone(self.store.find_token(expired))
         status, _ = self.api.handle("GET", "/api/accounts", b"",
                                     {"authorization": f"Bearer {expired}"})
         self.assertEqual(status, 401)
+
+    def test_a_token_is_bound_to_the_user_it_was_issued_for(self):
+        """Erik's session reads Erik's profile and cannot become Aaron's."""
+        status, me = self.api.handle("GET", "/api/auth/me", b"",
+                                     {"authorization": f"Bearer {self.token_for(self.erik)}"})
+        self.assertEqual(status, 200)
+        self.assertEqual(me["user"]["email"], "erik@example.com")
 
     def test_login_returns_a_working_token(self):
         status, body = self.post("/api/auth/login",
@@ -134,6 +152,47 @@ class TestAuthentication(ApiTestCase):
                                      {"authorization": f"Bearer {body['token']}"})
         self.assertEqual(status, 200)
         self.assertEqual(me["user"]["email"], "aaron@example.com")
+
+    def test_login_saves_the_token_against_the_user(self):
+        """The token the client is handed is a row in the tokens table, and that
+        row names the user it belongs to and when it stops working."""
+        _, body = self.post("/api/auth/login",
+                            {"email": "aaron@example.com", "password": PASSWORD})
+        session = self.store.find_token(body["token"])
+        self.assertIsNotNone(session)
+        self.assertEqual(session.user_id, self.aaron.user_id)
+        self.assertFalse(session.is_expired())
+        self.assertGreater(body["expiresIn"], 0)
+
+    def test_register_saves_a_token_too(self):
+        status, body = self.post("/api/auth/register", {
+            "name": "New Person", "email": "new@example.com", "password": PASSWORD,
+        })
+        self.assertEqual(status, 201)
+        session = self.store.find_token(body["token"])
+        self.assertIsNotNone(session)
+        self.assertEqual(session.user_id, body["user"]["userId"])
+
+    def test_one_user_may_hold_several_tokens_at_once(self):
+        """A phone and a laptop are two sessions. Logging in on the second must
+        not invalidate the first, which is why user_id is not unique in the
+        tokens table."""
+        first = self.token_for(self.aaron)
+        _, body = self.post("/api/auth/login",
+                            {"email": "aaron@example.com", "password": PASSWORD})
+        second = body["token"]
+        self.assertNotEqual(first, second)
+        for token in (first, second):
+            status, _ = self.api.handle("GET", "/api/accounts", b"",
+                                        {"authorization": f"Bearer {token}"})
+            self.assertEqual(status, 200)
+
+    def test_two_tokens_are_never_the_same_string(self):
+        """The token is the primary key, so a repeat would collide with a live
+        session. 200 samples is not a proof of randomness - it is a guard against
+        the token accidentally becoming derived from the user or the second."""
+        issued = {self.svc.issue_token(self.aaron).token for _ in range(200)}
+        self.assertEqual(len(issued), 200)
 
     def test_a_failed_login_is_401_not_403(self):
         """401 means 'authenticate'. 403 means 'authenticating again will not help'."""
@@ -186,7 +245,7 @@ class TestAdminRegistration(ApiTestCase):
 
     def open_api(self):
         """A second API over the same service, with admin registration open."""
-        return BankAPI(self.svc, secret=SECRET, admin_code=self.ADMIN_CODE)
+        return BankAPI(self.svc, admin_code=self.ADMIN_CODE)
 
     @staticmethod
     def register(api, email, code=None):
@@ -775,7 +834,7 @@ class TestLiveServer(unittest.TestCase):
                                      password_hash=SHARED_HASH)
         cls.account = svc.open_account(cls.user, "CHECKING", 25000)
 
-        api = BankAPI(svc, secret=SECRET)
+        api = BankAPI(svc)
         # Port 0 asks the OS for any free port, so the suite never collides with
         # a server the developer already has running on 8000.
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0),

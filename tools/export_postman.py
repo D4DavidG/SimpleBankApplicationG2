@@ -263,7 +263,7 @@ def folder_for(path: str) -> str:
 def build() -> dict:
     # Import the real route table rather than restating it. This is the line that
     # makes the collection unable to drift from the code.
-    api = BankAPI(BankService(BankStore()), secret="export-only")
+    api = BankAPI(BankService(BankStore()))
 
     folders: dict[str, list] = {}
     for route in api.routes:
