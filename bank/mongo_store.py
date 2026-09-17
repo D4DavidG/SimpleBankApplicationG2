@@ -27,6 +27,8 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+import re
+
 from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.errors import (
     ConnectionFailure, DuplicateKeyError, OperationFailure, PyMongoError,
@@ -319,6 +321,25 @@ class MongoStore:
     @_guarded
     def all_users(self) -> list[User]:
         cursor = self._users.find({}, session=self._session).sort("_id", ASCENDING)
+        return [_user_from(doc) for doc in cursor]
+
+    @_guarded
+    def search_users(self, query: str, limit: int = 10) -> list[User]:
+        """See BankStore.search_users. Same contract, done by the database.
+
+        The query is escaped before it becomes a regex. Without that, a user
+        typing "a.*" or "(" is writing the pattern themselves - at best a
+        confusing result, at worst a pattern that takes the database a very long
+        time to evaluate.
+        """
+        needle = (query or "").strip()
+        if not needle:
+            return []
+        pattern = {"$regex": re.escape(needle), "$options": "i"}
+        cursor = self._users.find(
+            {"$or": [{"name": pattern}, {"email": pattern}]},
+            session=self._session,
+        ).sort("_id", ASCENDING).limit(limit)
         return [_user_from(doc) for doc in cursor]
 
     @_guarded

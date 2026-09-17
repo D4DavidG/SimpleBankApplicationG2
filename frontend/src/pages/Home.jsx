@@ -38,10 +38,7 @@ function AccountBars({ accounts }) {
         <li key={account.accountId}>
           <Link to={`/accounts/${account.accountId}`}
                 className={`bar lift bar-${account.accountId % 6}`}>
-            <span>
-              <span className="bar-type">{account.accountType}</span>{' '}
-              <span className="bar-id">#{account.accountId}</span>
-            </span>
+            <span className="bar-type">{account.accountType}</span>
             {account.status === 'FROZEN' && <span className="badge">FROZEN</span>}
             {/* Divide by 100 to display, never to calculate. */}
             <span className="bar-balance">{formatCents(account.balance)}</span>

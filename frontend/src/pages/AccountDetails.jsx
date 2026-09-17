@@ -61,31 +61,35 @@ export default function AccountDetails() {
     )
   }
 
+  /* Same colour this account wears on the home page, so arriving here from a
+   * bar is obviously the same account. Picked by accountId, not by position, so
+   * it does not change when another account is closed. */
+  const tint = `tint-${account.accountId % 6}`
+
   return (
-    <div className="card">
-      <h1>{account.accountType} account #{account.accountId}</h1>
+    <div className={`card profile ${tint}`}>
+      <div className="profile-head">
+        {/* No account number. The type and the owner are what a person
+            recognises; the id is a database key and stays in the URL. */}
+        <h1>{account.accountType} account</h1>
+        {account.status === 'FROZEN' && <span className="badge">FROZEN</span>}
+      </div>
 
-      <dl className="details">
-        <dt>Owner</dt>
-        <dd>{account.userName ?? 'Unknown owner'}</dd>
-
-        <dt>Balance</dt>
-        <dd className="balance">{formatCents(account.balance)}</dd>
-
-        <dt>Type</dt>
-        <dd>{account.accountType}</dd>
-
-        <dt>Available to withdraw</dt>
-        <dd>{formatCents(account.availableForWithdrawal)}</dd>
-
-        <dt>Status</dt>
-        <dd>{account.status === 'FROZEN' ? <span className="badge">FROZEN</span> : account.status}</dd>
+      <dl className="detail-rows">
+        <div><dt>Owner</dt><dd>{account.userName ?? 'Unknown owner'}</dd></div>
+        <div><dt>Balance</dt><dd>{formatCents(account.balance)}</dd></div>
+        <div><dt>Type</dt><dd>{account.accountType}</dd></div>
+        <div>
+          <dt>Available to withdraw</dt>
+          <dd>{formatCents(account.availableForWithdrawal)}</dd>
+        </div>
+        <div><dt>Status</dt><dd>{account.status}</dd></div>
       </dl>
 
       <div className="actions">
-        <Link className="action" to={`/accounts/${account.accountId}/deposit`}>Deposit</Link>
-        <Link className="action" to={`/accounts/${account.accountId}/withdraw`}>Withdraw</Link>
-        <Link className="action" to={`/accounts/${account.accountId}/transactions`}>Transactions</Link>
+        <Link className="action lift" to={`/accounts/${account.accountId}/deposit`}>Deposit</Link>
+        <Link className="action lift" to={`/accounts/${account.accountId}/withdraw`}>Withdraw</Link>
+        <Link className="action lift" to={`/accounts/${account.accountId}/transactions`}>Transactions</Link>
       </div>
     </div>
   )

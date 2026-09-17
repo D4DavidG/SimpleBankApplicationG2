@@ -106,6 +106,41 @@ class BankService:
         with self.store.atomic():
             return self.store.add_user(name.strip(), email, role, password_hash)
 
+    def search_users(self, query: str, actor: User, limit: int = 10) -> list[User]:
+        """People the caller could send money to, matched on name or email.
+
+        `actor` is taken so the caller can be left out of their own results -
+        transferring to yourself is refused further down anyway, and offering it
+        as a choice only invites the error.
+
+        A word on what this exposes. It is a directory: any signed-in customer
+        can type two letters and read back names and email addresses. A real
+        bank does not have one, because it is a list of its customers, and you
+        send money to an account number or to a payee you have already
+        confirmed. It is here because a training project needs somebody to pay
+        and account numbers are not memorable. If this ever stopped being a
+        practice project, this method is the first thing to take out.
+        """
+        query = (query or "").strip()
+        # Two characters minimum. One letter matches most of the roster, which
+        # is not a search, it is a listing with extra steps.
+        if len(query) < 2:
+            return []
+        found = self.store.search_users(query, limit + 1)
+        return [u for u in found if u.user_id != actor.user_id][:limit]
+
+    def primary_account_for(self, user_id: int) -> Account:
+        """The account a transfer lands in when the sender picked a person.
+
+        The oldest active one. Which account it is matters less than it being
+        the same one every time - a payee whose destination moved between two
+        transfers would be a genuinely alarming thing for a bank to do.
+        """
+        accounts = [a for a in self.store.accounts_for_user(user_id) if a.is_active]
+        if not accounts:
+            raise AccountNotFound("that person has no account that can receive money")
+        return min(accounts, key=lambda a: a.account_id)
+
     def update_profile(self, actor: User, name: str | None = None,
                        email: str | None = None) -> User:
         """Change the caller's own name or email.

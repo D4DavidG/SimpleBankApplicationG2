@@ -479,6 +479,106 @@ class TestAdminRoutes(ApiTestCase):
 
 # ============================================================== authorization
 
+class TestUserSearch(ApiTestCase):
+    """GET /api/users/search - finding somebody to pay."""
+
+    def search(self, q, user=None):
+        return self.get(f"/api/users/search?q={q}", user or self.aaron)
+
+    def test_needs_a_token(self):
+        status, _ = self.api.handle("GET", "/api/users/search?q=erik", b"", {})
+        self.assertEqual(status, 401)
+
+    def test_finds_by_name_case_insensitively(self):
+        for q in ("erik", "ERIK", "Erik", "mayes"):
+            with self.subTest(q=q):
+                status, body = self.search(q)
+                self.assertEqual(status, 200)
+                self.assertEqual([u["email"] for u in body["users"]],
+                                 ["erik@example.com"])
+
+    def test_finds_by_email(self):
+        _, body = self.search("erik@exam")
+        self.assertEqual([u["name"] for u in body["users"]], ["Erik Mayes"])
+
+    def test_leaves_the_caller_out_of_their_own_results(self):
+        """Transferring to yourself is refused anyway; offering it invites it."""
+        _, body = self.search("aaron")
+        self.assertEqual(body["users"], [])
+
+    def test_one_character_returns_nothing(self):
+        """A single letter matches most of a roster, which is a directory dump
+        rather than a search."""
+        _, body = self.search("a")
+        self.assertEqual(body["users"], [])
+
+    def test_no_password_field_ever_comes_back(self):
+        _, body = self.search("erik")
+        self.assertNotIn("password_hash", body["users"][0])
+        self.assertNotIn("passwordHash", body["users"][0])
+
+
+class TestTransferToAPerson(ApiTestCase):
+    """POST /api/transfers with toUserId instead of toAccountId."""
+
+    def test_lands_in_that_persons_primary_account(self):
+        status, body = self.post("/api/transfers", {
+            "fromAccountId": self.a_checking.account_id,
+            "toUserId": self.erik.user_id,
+            "amount": 5000,
+        }, self.aaron)
+        self.assertEqual(status, 201)
+        self.assertEqual(body["credit"]["accountId"], self.e_checking.account_id)
+
+    def test_sending_both_destinations_is_refused(self):
+        """A mismatched pair would move money somewhere the caller did not name."""
+        status, body = self.post("/api/transfers", {
+            "fromAccountId": self.a_checking.account_id,
+            "toAccountId": self.e_checking.account_id,
+            "toUserId": self.erik.user_id,
+            "amount": 5000,
+        }, self.aaron)
+        self.assertEqual(status, 400)
+        self.assertIn("exactly one", body["error"])
+
+    def test_sending_neither_is_refused(self):
+        status, _ = self.post("/api/transfers", {
+            "fromAccountId": self.a_checking.account_id,
+            "amount": 5000,
+        }, self.aaron)
+        self.assertEqual(status, 400)
+
+    def test_a_user_who_does_not_exist_is_a_404(self):
+        status, _ = self.post("/api/transfers", {
+            "fromAccountId": self.a_checking.account_id,
+            "toUserId": 9999,
+            "amount": 5000,
+        }, self.aaron)
+        self.assertEqual(status, 404)
+
+    def test_a_user_with_no_account_is_a_404(self):
+        loner = self.svc.register_user("No Accounts", "loner@example.com",
+                                       password_hash=SHARED_HASH)
+        status, body = self.post("/api/transfers", {
+            "fromAccountId": self.a_checking.account_id,
+            "toUserId": loner.user_id,
+            "amount": 5000,
+        }, self.aaron)
+        self.assertEqual(status, 404)
+        self.assertIn("no account", body["error"])
+
+    def test_the_same_person_always_resolves_to_the_same_account(self):
+        """A payee whose destination moved between transfers would be alarming."""
+        self.svc.open_account(self.erik, "SAVINGS", 100)
+        first = self.post("/api/transfers", {
+            "fromAccountId": self.a_checking.account_id,
+            "toUserId": self.erik.user_id, "amount": 100}, self.aaron)[1]
+        second = self.post("/api/transfers", {
+            "fromAccountId": self.a_checking.account_id,
+            "toUserId": self.erik.user_id, "amount": 100}, self.aaron)[1]
+        self.assertEqual(first["credit"]["accountId"], second["credit"]["accountId"])
+
+
 class TestOwnershipOverHttp(ApiTestCase):
     """The IDOR row from the seed document's test table, at the HTTP boundary."""
 

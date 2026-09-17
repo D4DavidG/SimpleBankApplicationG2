@@ -225,6 +225,7 @@ class BankAPI:
             Route("POST", "/api/auth/me", self.update_me),
             Route("POST", "/api/accounts", self.create_account),            # brief 5.4
             Route("GET", "/api/accounts", self.list_accounts),
+            Route("GET", "/api/users/search", self.search_users),
             Route("GET", "/api/accounts/{id}", self.get_account),           # brief 5.4
             Route("POST", "/api/accounts/{id}/deposit", self.deposit),      # brief 5.4
             Route("POST", "/api/accounts/{id}/withdraw", self.withdraw),    # brief 5.4
@@ -524,6 +525,16 @@ class BankAPI:
         accounts = self.service.my_accounts(request.actor)
         return 200, {"accounts": [account_json(a, request.actor) for a in accounts]}
 
+    def search_users(self, request: Request) -> tuple[int, dict]:
+        """GET /api/users/search?q=ben - who the caller could send money to.
+
+        Deliberately not under /api/admin: paying somebody is a customer action.
+        See `service.search_users` for what this exposes and why it would not
+        exist in a real bank.
+        """
+        people = self.service.search_users(request.query.get("q", ""), request.actor)
+        return 200, {"users": [user_json(u) for u in people]}
+
     def get_account(self, request: Request) -> tuple[int, dict]:
         """GET /api/accounts/{id} - the brief's endpoint, with the hole closed.
 
@@ -591,10 +602,16 @@ class BankAPI:
         /api/accounts/{id}: a transfer is an operation on the pair, and putting
         one of them in the path and the other in the body suggests an asymmetry
         that does not exist.
+
+        The destination may be given as `toUserId` instead of `toAccountId`, and
+        the server resolves it to that person's primary account. That is what
+        lets the frontend offer a name to pick rather than asking somebody to
+        know an account number - and it means the browser never has to be told
+        another user's account ids, which it has no business holding.
         """
         out, inn = self.service.transfer(
             from_id=self._int_field(request.require("fromAccountId"), "fromAccountId"),
-            to_id=self._int_field(request.require("toAccountId"), "toAccountId"),
+            to_id=self._destination_account_id(request),
             amount=request.require("amount"),
             actor=request.actor,
             client_txn_id=request.optional("clientTxnId"),
@@ -606,6 +623,25 @@ class BankAPI:
             "credit": transaction_json(inn),
             "account": account_json(source, owner),
         }
+
+    def _destination_account_id(self, request: Request) -> int:
+        """Where a transfer is going: an account id, or a person's primary one.
+
+        Exactly one of the two is required. Accepting both and silently
+        preferring one would mean a client that sent a mismatched pair moved
+        money somewhere it did not name.
+        """
+        account_id = request.optional("toAccountId")
+        user_id = request.optional("toUserId")
+        if (account_id is None) == (user_id is None):
+            raise ApiError(400, "send exactly one of 'toAccountId' or 'toUserId'")
+        if account_id is not None:
+            return self._int_field(account_id, "toAccountId")
+        user_id = self._int_field(user_id, "toUserId")
+        # get_user first, so an id that is nobody reads as "no such user" rather
+        # than as "that person has no account".
+        self.service.store.get_user(user_id)
+        return self.service.primary_account_for(user_id).account_id
 
     def _movement_response(self, txn, request: Request) -> tuple[int, dict]:
         """Shared reply for deposit and withdraw.

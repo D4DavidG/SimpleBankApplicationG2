@@ -433,8 +433,8 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
    * curve and duration on every property here, so the width, the height and
    * the fade finish together rather than in three separate steps. */
   transition:
-    max-width 550ms cubic-bezier(0.22, 1, 0.36, 1),
-    margin 550ms cubic-bezier(0.22, 1, 0.36, 1);
+    max-width 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin 900ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Open, it breaks out past the page rail - wider than the content above, which
@@ -461,7 +461,7 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 .about-body {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 550ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: grid-template-rows 900ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .about.open .about-body { grid-template-rows: 1fr; }
@@ -474,7 +474,7 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
   overflow: hidden;
   opacity: 0;
   transform: translateY(-0.5rem);
-  transition: opacity 400ms ease 120ms, transform 400ms ease 120ms;
+  transition: opacity 600ms ease 280ms, transform 600ms ease 280ms;
 }
 
 .about.open .about-body > div { opacity: 1; transform: none; }
@@ -549,7 +549,6 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 }
 
 .bar-type { font-weight: 700; font-size: 1.05rem; }
-.bar-id { opacity: 0.85; font-size: 0.85rem; }
 
 .bar-balance {
   margin-left: auto;
@@ -632,3 +631,73 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 
 .profile label { font-size: 1rem; }
 .profile input { font-size: 1.05rem; padding: var(--s2); }
+
+/* ------------------------------------------- account detail colour tint */
+
+/* The card carries a wash of the colour its bar wears on the home page, so
+ * arriving here from a bar obviously lands on the same account.
+ *
+ * A pale tint rather than the full colour: the page is dark text on a card, and
+ * the saturated version of these only works under white. The left edge carries
+ * the full-strength colour, which is what actually makes it recognisable.
+ */
+.tint-0 { background: #eefbf8; border-left: 6px solid #0f766e; }
+.tint-1 { background: #eeeefc; border-left: 6px solid #4f46e5; }
+.tint-2 { background: #f4eefd; border-left: 6px solid #7c3aed; }
+.tint-3 { background: #fdeef2; border-left: 6px solid #e11d48; }
+.tint-4 { background: #fbf3ea; border-left: 6px solid #b45309; }
+.tint-5 { background: #eaf9f2; border-left: 6px solid #047857; }
+
+/* The rows sit on the tint, so they need a surface of their own to stay
+   readable rather than inheriting the wash. */
+.tint-0 .detail-rows > div, .tint-1 .detail-rows > div,
+.tint-2 .detail-rows > div, .tint-3 .detail-rows > div,
+.tint-4 .detail-rows > div, .tint-5 .detail-rows > div { background: var(--surface); }
+
+/* ------------------------------------------------------- user search */
+
+.user-search { position: relative; }
+
+.results {
+  list-style: none;
+  margin: var(--s1) 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.results li + li { border-top: 1px solid var(--border); }
+
+/* A full-width button rather than a row with a click handler, so Tab reaches
+   every result and Enter picks one. */
+.results button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  min-height: 0;
+  padding: var(--s2) var(--s3);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.results button:hover { background: var(--bg); }
+.results .no-match { padding: var(--s2) var(--s3); }
+
+.picked {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+}
+
+.picked > div { display: flex; flex-direction: column; }
+.picked button { margin-left: auto; }

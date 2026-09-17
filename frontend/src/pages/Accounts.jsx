@@ -25,7 +25,7 @@ export default function Accounts() {
         {accounts.map((account) => (
           <li key={account.accountId} className="card">
             <Link to={`/accounts/${account.accountId}`}>
-              <strong>{account.accountType}</strong> #{account.accountId}
+              <strong>{account.accountType}</strong>
             </Link>
             {account.status === 'FROZEN' && <span className="badge">FROZEN</span>}
             {/* Divide by 100 to display, never to calculate. */}

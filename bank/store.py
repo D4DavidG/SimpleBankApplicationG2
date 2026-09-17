@@ -82,6 +82,23 @@ class BankStore:
     def all_users(self) -> list[User]:
         return sorted(self._users.values(), key=lambda u: u.user_id)
 
+    def search_users(self, query: str, limit: int = 10) -> list[User]:
+        """Users whose name or email contains `query`, case-insensitively.
+
+        A plain substring scan. At this size that is the right answer: a text
+        index would be faster on a million rows and is machinery nobody here can
+        explain. If the roster ever gets big, this is the line to revisit.
+
+        `limit` is not a nicety. Without it a one-letter query returns the whole
+        roster, which turns a search box into a directory dump.
+        """
+        needle = (query or "").strip().lower()
+        if not needle:
+            return []
+        found = [u for u in self.all_users()
+                 if needle in u.name.lower() or needle in u.email.lower()]
+        return found[:limit]
+
     def update_user(self, user_id: int, name: str | None = None,
                     email: str | None = None) -> User:
         """Change a user's name, email, or both. Anything passed as None is left

@@ -125,6 +125,16 @@ export const withdraw = (accountId, amount, clientTxnId) =>
 export const transfer = (fromAccountId, toAccountId, amount, clientTxnId) =>
   post('/transfers', { fromAccountId, toAccountId, amount, clientTxnId })
 
+// Send to a person rather than to an account number. The server resolves them
+// to their primary account, so the browser never holds anyone else's account id.
+export const transferToUser = (fromAccountId, toUserId, amount, clientTxnId) =>
+  post('/transfers', { fromAccountId, toUserId, amount, clientTxnId })
+
+// People the caller could pay, matched on name or email. Two characters minimum;
+// anything shorter comes back empty rather than returning half the roster.
+export const searchUsers = (q) =>
+  get(`/users/search?q=${encodeURIComponent(q)}`)
+
 // Comes back as a page envelope: { items, page, pageSize, total, totalPages }.
 export function listTransactions(accountId, { page = 1, pageSize = 20, type } = {}) {
   const query = new URLSearchParams({ page, pageSize })
