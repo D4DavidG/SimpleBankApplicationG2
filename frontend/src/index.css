@@ -155,3 +155,100 @@ button:disabled { opacity: 0.6; cursor: default; }
 .hint { color: var(--muted); font-size: 0.85rem; }
 
 code { background: var(--bg); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85em; }
+
+/* ------------------------------------------------- the staff (admin) theme
+ *
+ * Custom properties inherit, so redefining the brand tokens on one wrapper
+ * recolours everything inside it without a single component knowing about it.
+ * That is the whole mechanism - there is no admin stylesheet.
+ *
+ * The point is not decoration. You should always be able to tell at a glance
+ * which context you are acting in, because one of these two can freeze accounts
+ * and adjust balances.
+ */
+.theme-admin {
+  --navy: #9e1b13;         /* 8.02:1 with white - headings, buttons */
+  --blue: #8c1109;         /* 9.55:1 with white - links, focus rings */
+  --field-border: #8a6b68; /* 4.79:1 on surface, past the 3:1 minimum */
+  --bg: #fdf6f5;
+
+  /* The wrapper is the page, so it has to paint its own background - the token
+   * above only reaches things inside it, not <body>. */
+  min-height: 70vh;
+  margin: -2rem -1.5rem;
+  padding: 2rem 1.5rem;
+  background: var(--bg);
+}
+
+.theme-admin .card { border-color: #e8c9c6; }
+
+/* -------------------------------------------------------- nav: name + role */
+
+.nav-name { display: flex; align-items: center; gap: 0.4rem; }
+
+.nav-role {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: #fff;
+  color: #9e1b13;
+}
+
+/* ------------------------------------------------------------ home + lists */
+
+.total {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 0.25rem 0 0;
+}
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+
+.action {
+  display: inline-block;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  background: var(--surface);
+  text-decoration: none;
+}
+
+.action:hover { border-color: var(--navy); }
+
+/* Definition list as a two-column detail table. */
+.details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1rem;
+  margin: 0 0 1.25rem;
+}
+
+.details dt { color: var(--muted); font-size: 0.9rem; }
+.details dd { margin: 0; display: flex; align-items: center; gap: 0.4rem; }
+.details dd .nav-role { background: var(--navy); color: #fff; }
+
+.row { display: flex; gap: 0.5rem; }
+
+button.secondary {
+  background: var(--surface);
+  color: var(--navy);
+}
+
+/* A quiet way through to the other kind of sign-in. Fixed to the corner so it
+ * never competes with the form, which is what almost everyone is here for. */
+.corner-link {
+  position: fixed;
+  bottom: 1rem;
+  left: 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.corner-link:hover { border-color: var(--navy); }

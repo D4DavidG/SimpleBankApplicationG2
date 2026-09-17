@@ -179,6 +179,140 @@ class TestAuthentication(ApiTestCase):
         self.assertEqual(status, 409)
 
 
+class TestAdminRegistration(ApiTestCase):
+    """Registering as an admin: only with the code, and only if one is set."""
+
+    ADMIN_CODE = "Group2Rules!"
+
+    def open_api(self):
+        """A second API over the same service, with admin registration open."""
+        return BankAPI(self.svc, secret=SECRET, admin_code=self.ADMIN_CODE)
+
+    @staticmethod
+    def register(api, email, code=None):
+        body = {"name": "New Person", "email": email, "password": PASSWORD}
+        if code is not None:
+            body["adminCode"] = code
+        return api.handle("POST", "/api/auth/register",
+                          json.dumps(body).encode("utf-8"), {})
+
+    def test_no_code_still_makes_a_customer(self):
+        status, body = self.register(self.open_api(), "plain@example.com")
+        self.assertEqual(status, 201)
+        self.assertEqual(body["user"]["role"], "CUSTOMER")
+
+    def test_the_right_code_makes_an_admin(self):
+        status, body = self.register(self.open_api(), "boss@example.com",
+                                     self.ADMIN_CODE)
+        self.assertEqual(status, 201)
+        self.assertEqual(body["user"]["role"], "ADMIN")
+
+    def test_the_wrong_code_is_refused_and_creates_nobody(self):
+        status, body = self.register(self.open_api(), "sneaky@example.com", "wrong")
+        self.assertEqual(status, 403)
+        self.assertIn("admin code", body["error"])
+        # The refusal has to happen before the user is created, or a failed
+        # attempt would leave a customer behind and burn the email address.
+        self.assertIsNone(self.store.find_user_by_email("sneaky@example.com"))
+
+    def test_no_code_configured_means_no_admin_can_register(self):
+        """`self.api` is built without an admin_code, which is the default. A
+        deployment nobody configured must not be able to grow admins."""
+        status, body = self.register(self.api, "boss@example.com", self.ADMIN_CODE)
+        self.assertEqual(status, 403)
+        self.assertIsNone(self.store.find_user_by_email("boss@example.com"))
+
+    def test_a_non_string_code_is_refused_not_crashed(self):
+        """compare_digest raises TypeError on a non-string, which would be a 500
+        for what is really a bad request."""
+        for junk in (True, 12345, ["Group2Rules!"], {"code": "Group2Rules!"}):
+            with self.subTest(junk=junk):
+                status, _ = self.open_api().handle(
+                    "POST", "/api/auth/register",
+                    json.dumps({"name": "X", "email": f"x{id(junk)}@example.com",
+                                "password": PASSWORD, "adminCode": junk}).encode(),
+                    {})
+                self.assertEqual(status, 403)
+
+    def test_the_new_admin_can_actually_reach_an_admin_route(self):
+        """The role has to be real, not just a string in the response."""
+        api = self.open_api()
+        _, body = self.register(api, "boss@example.com", self.ADMIN_CODE)
+        headers = {"authorization": f"Bearer {body['token']}"}
+        status, _ = api.handle("GET", "/api/admin/users", b"", headers)
+        self.assertEqual(status, 200)
+
+
+class TestProfileEditing(ApiTestCase):
+    """POST /api/auth/me - editing your own name and email, and nobody else's."""
+
+    def test_needs_a_token(self):
+        status, _ = self.post("/api/auth/me", {"name": "Nobody"})
+        self.assertEqual(status, 401)
+
+    def test_changes_the_name(self):
+        status, body = self.post("/api/auth/me", {"name": "Aaron F."}, self.aaron)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["user"]["name"], "Aaron F.")
+        self.assertEqual(self.store.get_user(self.aaron.user_id).name, "Aaron F.")
+
+    def test_changes_the_email_and_the_new_one_can_log_in(self):
+        status, _ = self.post("/api/auth/me", {"email": "aaron.f@example.com"},
+                              self.aaron)
+        self.assertEqual(status, 200)
+        # The email is the login identifier, so a rename that did not move the
+        # index would lock the user out of the account they just edited.
+        found = self.store.find_user_by_email("aaron.f@example.com")
+        self.assertEqual(found.user_id, self.aaron.user_id)
+        self.assertIsNone(self.store.find_user_by_email("aaron@example.com"))
+
+    def test_an_omitted_field_is_left_alone(self):
+        _, body = self.post("/api/auth/me", {"name": "Just The Name"}, self.aaron)
+        self.assertEqual(body["user"]["email"], "aaron@example.com")
+
+    def test_a_blank_field_is_refused_rather_than_erasing(self):
+        for field in ("name", "email"):
+            with self.subTest(field=field):
+                status, _ = self.post("/api/auth/me", {field: "   "}, self.aaron)
+                self.assertEqual(status, 400)
+
+    def test_an_empty_body_is_refused(self):
+        status, body = self.post("/api/auth/me", {}, self.aaron)
+        self.assertEqual(status, 400)
+        self.assertIn("name", body["error"])
+
+    def test_taking_somebody_elses_email_is_a_conflict(self):
+        status, _ = self.post("/api/auth/me", {"email": "erik@example.com"},
+                              self.aaron)
+        self.assertEqual(status, 409)
+        self.assertEqual(self.store.get_user(self.aaron.user_id).email,
+                         "aaron@example.com")
+
+    def test_keeping_your_own_email_is_not_a_conflict(self):
+        """Submitting the form unchanged must not collide with yourself."""
+        status, _ = self.post("/api/auth/me", {"email": "aaron@example.com"},
+                              self.aaron)
+        self.assertEqual(status, 200)
+
+    def test_the_body_cannot_name_another_user(self):
+        """The user edited comes from the token. A userId in the body is ignored,
+        not honoured - this is the same hole /api/accounts closes."""
+        status, body = self.post("/api/auth/me",
+                                 {"userId": self.erik.user_id, "name": "Hijacked"},
+                                 self.aaron)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["user"]["userId"], self.aaron.user_id)
+        self.assertEqual(self.store.get_user(self.erik.user_id).name, "Erik Mayes")
+
+    def test_role_cannot_be_changed_through_the_profile(self):
+        status, body = self.post("/api/auth/me",
+                                 {"name": "Aaron", "role": "ADMIN"}, self.aaron)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["user"]["role"], "CUSTOMER")
+        # And the token still will not open an admin route.
+        self.assertEqual(self.get("/api/admin/users", self.aaron)[0], 403)
+
+
 class TestPasswordHashing(unittest.TestCase):
     """Direct tests of security.py, which nothing else exercises in isolation."""
 

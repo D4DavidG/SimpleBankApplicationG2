@@ -25,6 +25,7 @@ export default function Login() {
   }
 
   return (
+    <>
     <div className="card narrow">
       <h1>Log in</h1>
       <form onSubmit={handleSubmit}>
@@ -50,9 +51,13 @@ export default function Login() {
         * this and the public /transactions route in App.jsx together. */}
       <p><Link to="/transactions">Transaction menu (test)</Link></p>
       <p className="hint">
-        Seed login: <code>aaron.forrester@example.com</code> — the password is printed
-        by <code>python server.py</code> when it loads the demo data.
+        Seed login: <code>aaron.forrester@example.com</code>, password
+        <code>BankDemo123!</code>.
       </p>
     </div>
+    {/* Staff door. Tucked in the corner because almost nobody using this is
+        staff, and it should not compete with the form. */}
+    <Link className="corner-link" to="/admin/login">Staff sign-in</Link>
+    </>
   )
 }

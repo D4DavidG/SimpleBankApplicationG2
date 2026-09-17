@@ -14,7 +14,7 @@ env/
 
 # AI customization files. AGENTS.md IS committed now: it is the team's
 # shared TODO list, so it has to be in the repo everyone clones.
-.github/
+# .github/
 
 # MongoDB VS Code extension scratch playgrounds. These are personal scratch
 # files and they hold whatever you last pasted into them - including, easily, a

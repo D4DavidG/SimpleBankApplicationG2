@@ -49,6 +49,7 @@ one table, in one file, instead of a `try`/`except` in each of sixteen handlers.
 """
 import json
 import re
+from hmac import compare_digest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -194,9 +195,16 @@ class BankAPI:
     `http.server` for FastAPI a change to the bottom of this file only.
     """
 
-    def __init__(self, service, secret: str | None = None):
+    def __init__(self, service, secret: str | None = None,
+                 admin_code: str | None = None):
         self.service = service
         self.secret = secret or new_secret()
+        # The shared code that lets somebody register as an admin. None means the
+        # door is shut and `adminCode` is refused whatever it contains, which is
+        # the right default: a deployment that never sets it cannot grow admins
+        # by accident. It arrives as an argument rather than being read from the
+        # environment here, so this class still has no idea what a .env file is.
+        self.admin_code = admin_code or None
         self.routes = self._build_routes()
 
     # -------------------------------------------------------------- the table
@@ -216,6 +224,7 @@ class BankAPI:
 
             # -- authenticated customer ------------------------------------
             Route("GET", "/api/auth/me", self.me),
+            Route("POST", "/api/auth/me", self.update_me),
             Route("POST", "/api/accounts", self.create_account),            # brief 5.4
             Route("GET", "/api/accounts", self.list_accounts),
             Route("GET", "/api/accounts/{id}", self.get_account),           # brief 5.4
@@ -395,15 +404,17 @@ class BankAPI:
     def register(self, request: Request) -> tuple[int, dict]:
         """Create a customer and log them straight in.
 
-        Note there is no `role` field read from the body. Accepting one would let
-        anybody mint themselves an admin by adding one line to a request, which is
-        the most common privilege-escalation bug in exactly this kind of endpoint.
-        Admins are created by the seed or by another admin, never by self-service.
+        Note there is still no `role` field read from the body. Accepting one
+        would let anybody mint themselves an admin by adding a line to a request,
+        which is the most common privilege-escalation bug in exactly this kind of
+        endpoint. What the body may carry is `adminCode`, which is checked against
+        a value only the server knows - see `_role_for`.
         """
         user = self.service.register_user(
             name=request.require("name"),
             email=request.require("email"),
             password=request.require("password"),
+            role=self._role_for(request.optional("adminCode")),
         )
         return 201, {
             "user": user_json(user),
@@ -430,10 +441,49 @@ class BankAPI:
             "expiresIn": TOKEN_TTL_SECONDS,
         }
 
+    def _role_for(self, submitted_code) -> str:
+        """CUSTOMER, or ADMIN if the request carried the right code.
+
+        The comparison is `compare_digest`, not `==`. String equality returns as
+        soon as two characters differ, so the time it takes leaks how much of the
+        code was right, and a few thousand attempts turn that into the code
+        itself. The fixed-time compare is one import and removes the whole class
+        of attack.
+
+        This is a shared secret typed into a form, which is the weakest thing
+        that can honestly be called authentication: everybody who registers this
+        way knows the same string, and it cannot be revoked for one person. It is
+        appropriate for a graded training project with a seeded roster, and it
+        would not be appropriate for anything real - the production answer is
+        that an existing admin promotes you, and the audit log records who did.
+        """
+        if submitted_code is None or submitted_code == "":
+            return "CUSTOMER"
+        if not isinstance(submitted_code, str) or self.admin_code is None:
+            raise ApiError(403, "invalid admin code")
+        if not compare_digest(submitted_code, self.admin_code):
+            raise ApiError(403, "invalid admin code")
+        return "ADMIN"
+
     def me(self, request: Request) -> tuple[int, dict]:
         """Who the current token belongs to. The frontend calls this on load to
         decide whether a stored token is still good."""
         return 200, {"user": user_json(request.actor)}
+
+    def update_me(self, request: Request) -> tuple[int, dict]:
+        """Edit your own name or email.
+
+        Which user gets edited comes from the token, never from the body, so
+        there is no id here to point at somebody else. A field that is absent is
+        left alone; a field that is present and blank is a 400 rather than a way
+        to erase your own name.
+        """
+        name = request.optional("name")
+        email = request.optional("email")
+        if name is None and email is None:
+            raise ApiError(400, "send 'name', 'email', or both")
+        user = self.service.update_profile(request.actor, name=name, email=email)
+        return 200, {"user": user_json(user)}
 
     # -------------------------------------------------------------- accounts
 
@@ -727,7 +777,7 @@ def make_handler_class(api: BankAPI, cors: bool = True, quiet: bool = False):
 
 
 def serve(service, host: str = "127.0.0.1", port: int = 8000,
-          secret: str | None = None) -> None:
+          secret: str | None = None, admin_code: str | None = None) -> None:
     """Start the API. Blocks until Ctrl+C.
 
     ThreadingHTTPServer, not HTTPServer: the single-threaded version handles one
@@ -735,7 +785,7 @@ def serve(service, host: str = "127.0.0.1", port: int = 8000,
     `BankService` exists to solve. Serving requests in parallel means the demo
     runs on the same execution model the rules were written for.
     """
-    api = BankAPI(service, secret)
+    api = BankAPI(service, secret, admin_code)
     httpd = ThreadingHTTPServer((host, port), make_handler_class(api))
     print(f"  Simple Bank API listening on http://{host}:{port}")
     print(f"  {len(api.routes)} routes. Try: GET http://{host}:{port}/api/health")

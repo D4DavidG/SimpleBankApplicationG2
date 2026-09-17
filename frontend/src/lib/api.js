@@ -66,9 +66,19 @@ const post = (path, body) => request('POST', path, body)
 /* ------------------------------------------------------------------ auth */
 
 export const health = () => get('/health')
-export const register = (name, email, password) => post('/auth/register', { name, email, password })
+// adminCode is the shared code from the admin register page. It is only ever
+// checked on the server - the copy in this file is just what the form collected,
+// and sending the wrong one is a 403 that creates nobody.
+export const register = (name, email, password, adminCode) =>
+  post('/auth/register', adminCode ? { name, email, password, adminCode }
+                                   : { name, email, password })
+
 export const login = (email, password) => post('/auth/login', { email, password })
 export const me = () => get('/auth/me')
+
+// Edit your own name or email. Which user gets edited comes from the token, so
+// there is no id to pass. Send only what changed; an omitted field is left alone.
+export const updateProfile = (changes) => post('/auth/me', changes)
 
 /* -------------------------------------------------------------- accounts */
 
