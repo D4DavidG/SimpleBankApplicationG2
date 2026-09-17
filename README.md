@@ -5,8 +5,12 @@ admin surface. Pure Python, standard library only. **Nothing to `pip install`.**
 
 ```bash
 python demo.py                     # walkthrough of every rule, no server needed
-python -m unittest -q              # 93 tests, ~5 seconds
-python server.py                   # REST API on http://127.0.0.1:8000, seeded
+python demo.py --step              # the same, paused between sections, for presenting
+python console.py --mongo          # type your own values in, one prompt at a time
+python simulate.py                 # live traffic to Atlas, watchable in a browser
+python demo.py --step --mongo      # ... against Atlas, ending in a persistence proof
+python -m unittest -q              # 107 tests (12 Mongo ones skip without a cluster)
+python server.py                   # REST API on http://127.0.0.1:8000
 python tools/export_postman.py     # regenerate postman_collection.json
 ```
 
@@ -38,8 +42,13 @@ Requires Python 3.10 or newer (the code uses `str | None` type syntax).
 
 | | |
 | --- | --- |
-| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 17 routes, role-based authorization, an audit log, seed data, 93 tests, a console demo, a generated Postman collection |
+| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 17 routes, role-based authorization, a persisted audit log, seed data, 107 tests, a MongoDB Atlas repository, a console demo, a generated Postman collection |
 | **Not here** | A database, a frontend, any third-party package |
+
+The backend still imports nothing but the standard library, and
+`python server.py` still runs on a clean machine with nothing installed.
+`requirements.txt` exists for the database phase only: the MongoDB store imports
+pymongo, and it is imported only when `.env` asks for it. See [mongo.md](mongo.md).
 
 The brief's architecture diagram is:
 
@@ -67,6 +76,79 @@ python demo.py
 Eleven sections. Sections 1 to 10 call service methods and print what each rule
 did; section 11 reaches the same rules through the HTTP layer so the rules and
 their status codes appear side by side. Nothing to type, nothing to clean up.
+
+**Presenting it to a room:**
+
+```bash
+python demo.py --step              # stops before each section, waits for Enter
+python demo.py --step --mongo      # ... and stores it all in MongoDB Atlas
+```
+
+`--step` exists so the narration happens between sections instead of racing a
+wall of scrolling output.
+
+### Type the values in yourself
+
+```bash
+python console.py                  # in memory
+python console.py --mongo          # writes to Atlas and stays there
+python console.py --mongo --reset  # ... starting from empty
+```
+
+Press `?` at the menu for a glossary: every collection, every term the console
+prints, and what each refusal proves. It is there so the question can be
+answered off the screen rather than from memory.
+
+A numbered menu that prompts one field at a time — Name, Email, Password, User
+or Admin — then opens accounts, deposits, withdraws, transfers and runs the admin
+actions. `demo.py` is the scripted version; this is the one for when somebody
+watching wants to pick the name or the amount.
+
+Amounts are typed in dollars (`25.50`) and the conversion to integer cents is
+printed as it happens, which makes the money design visible rather than
+something you have to describe.
+
+Every option calls the same service method the matching REST route calls, so a
+rule refusing something here refuses it over HTTP too. Refusals print and return
+you to the menu — nothing can raise out of it mid-demo.
+
+By default `--mongo` uses its own database (`$MONGODB_DB` + `_console`), so
+typing invented names never touches the shared demo data.
+
+### Watch it land in the browser
+
+```bash
+python simulate.py                 # until Ctrl+C, about one action every 2s
+python simulate.py --reset         # from an empty database
+python simulate.py --delay 5       # slower, for narrating
+python simulate.py --fast --steps 200   # fill a database quickly
+```
+
+Generates ordinary activity — people open accounts, deposit, withdraw, send each
+other money, and occasionally an admin freezes something — against
+`$MONGODB_DB` + `_sim`. Put the **Atlas Data Explorer**
+(`cloud.mongodb.com` → Cluster0 → Browse Collections) beside the terminal and
+press its refresh icon: **Atlas does not refresh by itself**, which is the most
+confusing thing about watching a database in a browser.
+
+Every line names the collection and the `_id` it wrote, so a line on screen maps
+to a document you can click on:
+
+```
+14:51:31  [transactions _id=13  ] Orla Grimaldi deposited 1,031.00 to #3  -> 3,446.00
+14:51:31  [REFUSED      --------] Luca Lindqvist tried to withdraw 3,499.00 from #1
+                                 -> InsufficientFunds: requested 349900, available 282100
+```
+
+Withdrawals are deliberately sized to overdraw sometimes, and about one
+submission in twelve is resent with the reference just used. Those print as
+refusals and write nothing — which is the thing worth catching on screen, because
+the database is exactly where a missing rule would show up as a balance that
+should not exist. It reconciles every account on the way out. `--mongo` adds a twelfth section that opens a **second,
+independent connection** and reads the balances and the audit log back out of
+Atlas — the one claim the in-memory version cannot make. It uses its own
+`simple_bank_demo` database and wipes it on the way in, so it never touches the
+shared data and can be run twice.
 
 ### Run the API
 
@@ -114,7 +196,7 @@ Each layer depends only on the one below it. Nothing points back up.
 ```
   api.py            Controller.  HTTP in, JSON out.  NO business rules.
        |
-  serializers.py    Domain objects -> JSON dicts.  Money leaves as strings.
+  serializers.py    Domain objects -> JSON dicts.  Money leaves as int cents.
        |
   services.py       Every business rule.  NO HTTP, NO SQL, NO framework.
        |
@@ -124,7 +206,7 @@ Each layer depends only on the one below it. Nothing points back up.
 ```
 
 Supporting modules sit to the side, used by several layers:
-`money.py` (Decimal handling), `security.py` (hashing and tokens),
+`money.py` (cents as ints), `security.py` (hashing and tokens),
 `errors.py` (domain exceptions), `seed.py` (demo data).
 
 **Why this matters for grading.** "Clean MVC separation" is one of the four
@@ -153,13 +235,13 @@ table is the index.
 
 | File | What it does |
 | --- | --- |
-| [bank/money.py](bank/money.py) | **Read this first.** Money is `Decimal`, never `float`. `to_money()` coerces and refuses floats; `parse_amount()` validates anything that came from outside the program; `format_money()` is display only. |
+| [bank/money.py](bank/money.py) | **Read this first.** Money is an `int` number of cents, never a `float` and never a `Decimal`. `to_cents()` refuses anything that is not an int; `parse_amount()` validates anything that came from outside the program; `format_money()` is display only. |
 | [bank/errors.py](bank/errors.py) | The domain exceptions. Business concepts, not HTTP codes. Every class is empty on purpose — the type *is* the information. |
 | [bank/models.py](bank/models.py) | `User`, `Account`, `Transaction`. `Account.balance` is a read-only property; `SavingsAccount` overrides `minimum_balance` so the withdrawal rule is polymorphic rather than an `if`. |
 | [bank/store.py](bank/store.py) | The repository. Dictionaries and lists behind method names a database will later implement. Owns the id sequences (`AUTO_INCREMENT`), the email uniqueness index, and the `client_txn_id` set. |
 | [bank/security.py](bank/security.py) | Password hashing (PBKDF2-HMAC-SHA256, salted, 600,000 rounds) and signed session tokens (HMAC-SHA256 over a base64url JSON payload — a JWT reduced to its load-bearing parts). |
 | [bank/services.py](bank/services.py) | **Every business rule.** Register, authenticate, open account, deposit, withdraw, transfer, history, freeze, adjust, reconcile. Takes a lock around anything that moves money. |
-| [bank/serializers.py](bank/serializers.py) | Domain objects to JSON dicts. Money goes out as a **string**. `password_hash` goes out never. |
+| [bank/serializers.py](bank/serializers.py) | Domain objects to JSON dicts. Money goes out as **integer cents**. `password_hash` goes out never. |
 | [bank/api.py](bank/api.py) | The controller: the route table, the token check, the role check, the error-to-status map, and the `http.server` plumbing at the bottom. |
 | [bank/seed.py](bank/seed.py) | The cohort roster as demo data — 14 users, 20 accounts, 73 transactions — replayed through the real service methods and verified against independently computed balances. |
 | [bank/\_\_init\_\_.py](bank/__init__.py) | The package's public surface. |
@@ -169,11 +251,19 @@ table is the index.
 | File | What it does |
 | --- | --- |
 | [server.py](server.py) | Entry point. Composes store → service → API, seeds, and serves. |
-| [demo.py](demo.py) | Console walkthrough of every rule, then the same rules over HTTP. |
+| [console.py](console.py) | **Interactive.** Prompts for a name, an email, an amount, and does it. For demonstrating live when the room wants to choose the values. `--mongo` writes to Atlas and prints the collection and `_id` to open in the browser; option 9 reads it back through a second connection; `?` is a glossary of everything on screen. |
+| [simulate.py](simulate.py) | **Live traffic.** Generates ordinary banking activity against Atlas, paced so you can watch documents appear in the Atlas Data Explorer. Every line names the collection and `_id` it wrote. Refusals are part of the simulation. |
+| [demo.py](demo.py) | Console walkthrough of every rule, then the same rules over HTTP. `--step` pauses between sections for presenting; `--mongo` runs it against Atlas and ends by reading everything back through a second connection. |
 | [test_bank.py](test_bank.py) | 34 tests of the business rules. Imports no HTTP anything. |
 | [test_api.py](test_api.py) | 59 tests of the controller: routing, auth, error mapping, serialization, the seed, and one end-to-end pass over a real socket. |
 | [tools/export_postman.py](tools/export_postman.py) | Generates `postman_collection.json` **from the live route table**, so it cannot drift from the code. |
+| [bank/config.py](bank/config.py) | Reads `.env` into the environment. Thirty lines of standard library; a real environment variable always wins over the file. |
+| [bank/mongo_store.py](bank/mongo_store.py) | **The MongoDB repository.** Same methods as `store.py`, backed by Atlas. Ids from a `counters` collection, email uniqueness and idempotency from unique indexes, every change inside `atomic()` — a real multi-document transaction. Driver errors are translated to domain errors, so `api.py` answers 503 and 409 without importing pymongo. Imported only when `MONGODB_URI` is set, so pymongo stays optional. |
+| [test_mongo.py](test_mongo.py) | 12 tests against a live cluster, opt-in with `MONGO_TESTS=1`. Always uses `simple_bank_test`, whatever `MONGODB_DB` says. Re-reads every balance from the database rather than trusting the returned object, and runs eight withdrawals across two connections to prove an account cannot be overdrawn. |
+| [tools/check_mongo.py](tools/check_mongo.py) | Seven checks that this machine can use the Atlas cluster, ending with a real multi-document transaction. Run it after following `mongo.md`. |
 | [postman_collection.json](postman_collection.json) | 28 requests in 6 folders, including a "Failure cases" folder. Generated — edit the tool, not this. |
+| [mongo.md](mongo.md) | **MongoDB Atlas setup.** What each of us does to get a working connection, the decisions already made, and the reasoning. Start here for the database phase. |
+| [requirements.txt](requirements.txt) | Empty of anything the *backend* needs. Exists for the database phase: `pymongo` is the first third-party package this project has required. |
 | [.env.example](.env.example) | Committed. `.env` is not. Nothing is required to run. |
 
 ---
@@ -228,28 +318,31 @@ POST /api/accounts/1/deposit
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{"amount": "100.00", "clientTxnId": "a3f1-...-9c2e"}
+{"amount": 10000, "clientTxnId": "a3f1-...-9c2e"}
 ```
 
 ```json
 {
   "transaction": {
     "txnId": 74, "accountId": 1, "type": "DEPOSIT",
-    "amount": "100.00", "signedAmount": "100.00", "direction": "CREDIT",
+    "amount": 10000, "signedAmount": 10000, "direction": "CREDIT",
     "clientTxnId": "a3f1-...-9c2e", "createdAt": "2026-09-15T14:22:01+00:00"
   },
   "account": {
     "accountId": 1, "userId": 1, "userName": "Aaron Forrester",
     "accountType": "CHECKING", "status": "ACTIVE",
-    "balance": "2580.00", "availableForWithdrawal": "2580.00",
-    "minimumBalance": "0.00", "createdAt": "..."
+    "balance": 258000, "availableForWithdrawal": 258000,
+    "minimumBalance": 0, "createdAt": "..."
   }
 }
 ```
 
+That deposit is 100.00 and the resulting balance is 2,580.00.
+
 Three things in that response are deliberate:
 
-- **`balance` is a string.** See [section 7](#7-money-the-rules-that-make-this-a-bank-and-not-a-crud-app).
+- **Every money field is an integer number of cents.** See
+  [section 7](#7-money-the-rules-that-make-this-a-bank-and-not-a-crud-app).
 - **The whole account comes back,** not just the transaction. The client must
   never compute a new balance by adding the amount to the one it was holding —
   that is the frontend doing money arithmetic, and it is wrong the moment two
@@ -269,12 +362,22 @@ honoured only when an admin is opening an account on a customer's behalf. The
 brief's exact body still works; it just no longer works for a customer targeting a
 stranger.
 
-**2. Amounts are strings, and a JSON number is rejected with 400.**
+**2. Amounts are whole cents, and anything else is rejected with 400.**
 
-The brief's sample is `{"amount": 500}`. A bare JSON number parses to a Python
-float, which has already lost precision by the time the server sees it, so
-`money.py` refuses it rather than rounding it and hiding the bug. Send
-`{"amount": "500.00"}`.
+The brief's sample is `{"amount": 500}`, meaning five hundred dollars. Here that
+same body means five dollars, because the unit is cents throughout — five hundred
+dollars is `{"amount": 50000}`.
+
+Two forms are refused rather than interpreted:
+
+- `{"amount": 500.00}` — a fractional JSON number parses to a Python float, which
+  has already lost precision by the time the server sees it.
+- `{"amount": "500.00"}` — a dollars-and-cents string, which is what an earlier
+  version of this API accepted.
+
+Both are ambiguous in an API that speaks cents, and guessing wrong is a
+hundredfold error in one direction or the other. A 400 with a message saying so
+is the only safe answer.
 
 ---
 
@@ -352,25 +455,36 @@ are character-for-character identical after normalising the id.
 
 ## 7. Money: the rules that make this a bank and not a CRUD app
 
-### Money is never a float
+### Money is an integer number of cents, and never a float
 
 ```python
 >>> 1000.10 + 234.20 + 0.30 - 0.04
 1234.5599999999999
 ```
 
-The same arithmetic in `Decimal` gives exactly `1234.56`. Four places this can go
-wrong, and what this codebase does at each:
+A float cannot represent 0.10 exactly, so sums drift, and the drift compounds
+across a ledger. The same figures as cents — `100010 + 23420 + 30 - 4` — come to
+`123456`, exactly, because integer arithmetic has no other option.
+
+Four places this can go wrong, and what this codebase does at each:
 
 | Where | Rule here |
 | --- | --- |
-| Storage | `DECIMAL(12,2)` when the database lands. Not `FLOAT`, not `DOUBLE`, not SQLite `NUMERIC`. |
-| Application | `decimal.Decimal` everywhere. `to_money()` raises `TypeError` on a float rather than rounding it — by the time a float arrives it has already lost precision, so accepting it hides the bug. |
-| JSON | **Serialized as a string.** `"balance": "1234.56"`, never `"balance": 1234.56`. A bare JSON number becomes an IEEE 754 double the instant `JSON.parse` runs. |
-| Frontend | Never `parseFloat` then arithmetic. Keep the string, display with `Intl.NumberFormat`, send amounts back as strings. |
+| Storage | `BIGINT` cents when the database lands. Not `FLOAT`, not `DOUBLE`, not SQLite `NUMERIC`. |
+| Application | `int` everywhere. `to_cents()` raises `TypeError` on a float rather than rounding it — by the time a float arrives it has already lost precision, so accepting it hides the bug. |
+| JSON | **Serialized as an integer.** `"balance": 123456`, never `1234.56`. A fractional JSON number becomes an IEEE 754 double the instant `JSON.parse` runs; an integer is exact to 2^53, which is about ninety trillion dollars in cents. |
+| Frontend | Divide by 100 to display, never to calculate. Render the balance the server sent; send amounts back as whole cents. |
 
-The JSON row is the one most commonly missed, and it discards the precision every
-other layer was careful about.
+The JSON row is the one most commonly missed, and getting it wrong discards the
+precision every other layer was careful about.
+
+**Why not `Decimal`?** It is the other correct answer, and it is what this
+codebase used at first. `Decimal` is exact, but only if every value is quantized
+to two places on the way in — miss one `.quantize()` and a third decimal place
+survives to be rounded inconsistently later. An `int` cannot hold a third decimal
+place at all, so the rule is enforced by the type rather than by remembering to
+call something. `Decimal` also is not JSON-serializable, which is what forced the
+earlier string-on-the-wire design; integers cross JSON intact.
 
 ### Every balance change writes exactly one ledger entry
 
@@ -433,11 +547,12 @@ which is right.
 The brief lists three. These are the nine actually implemented, all in
 `services.py` and nowhere else.
 
-1. Amounts are positive, at most 2 decimal places, and below a per-transaction
-   ceiling of 1,000,000.
-2. A withdrawal may not exceed what is **available**, which for a savings account
-   is the balance minus a 25.00 minimum. The service never checks the account
-   type to work this out — it asks the object.
+1. Amounts are positive whole cents, and below a per-transaction ceiling of
+   1,000,000.00 (100,000,000 cents).
+2. A withdrawal may not exceed what is **available**, which is the balance minus
+   whatever minimum the account type holds. Both types hold 0.00 at present, so
+   available equals the balance; the service still never checks the account type
+   to work this out — it asks the object.
 3. Frozen accounts reject all customer-initiated movement. Admin adjustments are
    still allowed, because correcting an account is a normal reason to have frozen
    it.
@@ -463,7 +578,7 @@ The service layer raises domain exceptions. `ERROR_STATUS` at the top of
 
 | Exception | Status | When |
 | --- | --- | --- |
-| `InvalidAmount` | **400** | Negative, zero, three decimals, a float, over the ceiling, unparseable |
+| `InvalidAmount` | **400** | Negative, zero, a float, a string, over the ceiling, not an int |
 | `ValueError` / `TypeError` | **400** | Missing field, unknown account type, admin reason too short |
 | *(no/invalid token)* | **401** | Missing, malformed, forged, or expired — one message for all four |
 | *(failed login)* | **401** | 401 means "authenticate"; 403 means "authenticating again will not help" |
@@ -502,18 +617,20 @@ document was computed independently. `seed.load()` asserts all twenty match.
 
 Several balances break something on purpose and should not be tidied up:
 
-| Account | Balance | What it is for |
-| --- | --- | --- |
-| 4 | `0.00` | Empty state, and a withdrawal against exactly zero |
-| 6 | `12.50` | Overdraft rejection — try to withdraw `12.51` |
-| 9 | `84,210.75` | Thousands separators and `tabular-nums` column alignment |
-| 10 | `1,200.00` **FROZEN** | Every deposit and withdrawal must be rejected |
-| 11 | `1,234.56` | `1000.10 + 234.20 + 0.30 - 0.04` — drifts to `1234.5599999999999` in float |
-| 18 | `0.01` | One cent: rounding and truncation in display code |
+| Account | Balance (cents) | Displays as | What it is for |
+| --- | --- | --- | --- |
+| 4 | `0` | `0.00` | Empty state, and a withdrawal against exactly zero |
+| 6 | `1250` | `12.50` | Overdraft rejection — try to withdraw `1251` |
+| 9 | `8421075` | `84,210.75` | Thousands separators and `tabular-nums` column alignment |
+| 10 | `120000` **FROZEN** | `1,200.00` | Every deposit and withdrawal must be rejected |
+| 11 | `123456` | `1,234.56` | `100010 + 23420 + 30 - 4`, which drifts to `1234.5599999999999` if done in float dollars |
+| 18 | `1` | `0.01` | One cent: the smallest unit the system can express |
 
 Accounts 9, 13 and 20 turned out to drift under float arithmetic as well, found
 by accident while verifying the seed file rather than designed in. Four accounts
-now detect a float in the chain rather than one.
+now detect a float in the chain rather than one. They cannot drift as integers,
+but they are kept because the guard is against a future change that reintroduces
+fractional arithmetic somewhere in the chain.
 
 **Four names in the roster were derived from handles and are unconfirmed** (Ayan
 Shabbir, Benjamin Voor, Bianca Alvarado, Justin Lin). Confirm them with their
@@ -525,7 +642,7 @@ owners before the demo, or use the handle as the display name.
 
 ```bash
 python -m unittest -q        # 93 tests, ~5 seconds
-python -m unittest -v        # with names
+MONGO_TESTS=1 python -m unittest -v        # with names, Mongo-enabled
 python -m unittest test_bank # rules only, ~0.01 seconds
 ```
 
@@ -569,12 +686,18 @@ alongside a ledger entry. If `balance` were a public attribute, the invariant
 `balance == sum(ledger)` would be unenforceable, because any line of code could
 break it. There is a test asserting the setter does not exist.
 
-**Inheritance with a real behavioural difference.** `SavingsAccount` holds a
-25.00 minimum; `CheckingAccount` does not. That difference lives in an overridden
-`minimum_balance`, and `withdraw()` in `services.py` calls
-`account.can_withdraw()` without ever checking the account type. Adding a third
-account type means adding a class, not editing an `if`. This is the difference
-between inheritance that earns its place and inheritance as decoration.
+**Inheritance at the point where the types can differ.** How much of a balance
+may actually leave is a per-type rule, and it lives in an overridden
+`minimum_balance` on `SavingsAccount`. `withdraw()` in `services.py` calls
+`account.can_withdraw()` without ever checking the account type, so adding a
+third account type means adding a class, not editing an `if`.
+
+Worth being straight about the current state: `SavingsAccount.MINIMUM` is 0.00,
+so the two types behave identically today and the override changes nothing an
+observer could see. The claim being made here is about where the rule is written,
+not about how much the two classes presently differ — the honest test of that is
+that restoring a floor is a one-constant edit with no change to `withdraw`,
+`transfer`, the serializers or the routes.
 
 **Python has no method overloading.** That was question 2 of Module 2. Java
 selects between same-named methods by parameter list at compile time; Python
@@ -603,8 +726,9 @@ during integration week instead of the afternoon it was introduced.
 
 | Not done | Why, and what it will touch |
 | --- | --- |
-| **A database** | The stack question is open — see section 14. Everything is in memory, so stopping the server discards all state. When it lands, `store.py` is rewritten and nothing else is. |
-| **A frontend** | Today's scope was the backend. The API is CORS-enabled for a dev server on another port, and money is already serialized as strings so the client never has to undo a float. |
+| **A database** | **Done for MongoDB.** With `MONGODB_URI` and `MONGODB_DB` in `.env`, `python server.py` serves from Atlas and the data survives a restart; `--memory` is the way back. See [mongo.md](mongo.md). What is still open is only which database is *graded* — see section 14. |
+| **A `seed.sql` for MySQL** | Written in `seed_data_bank_app.md` §3–4 but not extracted, and its amounts are in `DECIMAL`. If MySQL is chosen they become `BIGINT` cents — and §5, the MongoDB version, must not be run at all: it writes `Decimal128`, which this codebase refuses. |
+| **A frontend** | Today's scope was the backend. The API is CORS-enabled for a dev server on another port, and money is serialized as integer cents, so the client divides by 100 to display and never has to undo a float. |
 | **httpOnly cookie sessions** | Tokens currently travel in an `Authorization` header, which a React client stores itself. A token in `localStorage` is readable by any injected script, so the cookie version is the better end state — it needs a real CSRF story and an exact-origin CORS policy, not `*`. |
 | **Refresh tokens** | One hour, then log in again. A refresh lifecycle and a session-timeout warning with an extend option (WCAG 2.2.1) belong with the frontend work. |
 | **Rate limiting on login** | PBKDF2 makes each guess cost ~0.6s, which is real but not a substitute for lockout or backoff. |
@@ -631,6 +755,18 @@ These block the next phase, not this one.
    the schema, and on Mongo it decides whether the team needs a replica set
    (multi-document transactions require one; a standalone local `mongod` accepts
    the code and gives no atomicity, silently).
+
+   **The MongoDB half of this is now built and settled.** We are on Atlas; a
+   free M0 cluster *is* a three-node replica set, so every change runs inside a
+   real transaction, and `test_mongo.py` proves it against the live cluster. See
+   [mongo.md](mongo.md).
+
+   What remains open is only which database is **graded**. `store.py` is why that
+   answer costs us one class rather than the application: `MongoStore` answers the
+   same method names, and `api.py`, `models.py` and `serializers.py` did not
+   change when it landed. The repository interface did grow two members —
+   `atomic()` and `save_balance()`/`save_status()` — which is the honest version
+   of the claim and is written up in [mongo.md](mongo.md).
 2. **Python or Spring Boot?** The brief allows both; the syllabus teaches Python.
 3. **Is authentication core scope now?** The brief lists it as a bonus; the hiring
    manager asked for admin and user logins. This repo treats it as core.

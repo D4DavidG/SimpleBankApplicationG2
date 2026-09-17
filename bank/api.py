@@ -53,8 +53,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .errors import (
-    AccountNotActive, AccountNotFound, BankError, DuplicateTransaction,
-    EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized, UserNotFound,
+    AccountNotActive, AccountNotFound, BankError, ConcurrentUpdate, DuplicateTransaction,
+    StaleIdCounter,
+    EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized,
+    StorageUnavailable, UserNotFound,
 )
 from .security import TOKEN_TTL_SECONDS, issue_token, new_secret, read_token
 from .serializers import account_json, page_json, transaction_json, user_json
@@ -86,6 +88,16 @@ ERROR_STATUS = [
     (AccountNotActive, 409),
     (DuplicateTransaction, 409),
     (EmailAlreadyUsed, 409),
+    # Another request changed the same account first, and this one was rolled
+    # back whole. Retrying is safe.
+    (ConcurrentUpdate, 409),
+
+    # 503 Service Unavailable - the request was fine, but the database could not
+    # be reached. Nothing was changed, so the caller can try again shortly.
+    (StorageUnavailable, 503),
+    # A setup problem, not a request problem: retrying fails identically, so it
+    # is a 500 and the message says how to repair it.
+    (StaleIdCounter, 500),
 
     # Anything else from the domain that has not been given a status yet.
     (BankError, 400),
@@ -93,8 +105,10 @@ ERROR_STATUS = [
     # ValueError covers the service layer's own argument checks - a missing name,
     # an unknown account type, an admin reason that is too short.
     (ValueError, 400),
-    # money.to_money raises TypeError on a float. That is a client mistake, not a
-    # server fault, so it is a 400 and not a 500.
+    # money.to_cents raises TypeError on anything that is not an int number of
+    # cents. That is a client mistake, not a server fault, so it is a 400 and not
+    # a 500. (parse_amount catches most of these first and raises InvalidAmount;
+    # this row covers the paths that reach to_cents directly.)
     (TypeError, 400),
 ]
 
@@ -252,7 +266,7 @@ class BankAPI:
                 import traceback
                 traceback.print_exc()
                 return 500, {"error": "internal server error"}
-            return status, {"error": str(exc)}
+            return status, {"error": self._client_message(exc)}
 
     def _match(self, method: str, path: str) -> tuple[Route, dict]:
         """Find the route, distinguishing 404 from 405.
@@ -321,6 +335,33 @@ class BankAPI:
         return parsed
 
     @staticmethod
+    def _int_field(value, key: str) -> int:
+        """A body field that must be a whole number, or a 400 naming the field.
+
+        Without this, int(["x"]) raises a TypeError whose message is Python's own
+        wording about argument types, which describes our internals rather than
+        the caller's mistake.
+        """
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            raise ApiError(400, f"'{key}' must be a number")
+        try:
+            return int(value)
+        except ValueError:
+            raise ApiError(400, f"'{key}' must be a number") from None
+
+    @staticmethod
+    def _client_message(exc: Exception) -> str:
+        """What the caller is told about a matched exception.
+
+        Domain errors and ValueErrors carry messages written for a caller. A
+        TypeError does not: its text is Python explaining itself to a developer,
+        so it is replaced with something the caller can act on.
+        """
+        if isinstance(exc, (BankError, ValueError)):
+            return str(exc)
+        return "invalid request"
+
+    @staticmethod
     def _status_for(exc: Exception) -> int | None:
         """First matching row of ERROR_STATUS, or None if nothing matches."""
         for exc_type, status in ERROR_STATUS:
@@ -336,8 +377,20 @@ class BankAPI:
     # ------------------------------------------------------------------ auth
 
     def health(self, request: Request) -> tuple[int, dict]:
-        """Liveness check. Useful for confirming the server is up before a demo."""
-        return 200, {"status": "ok", "accounts": len(self.service.store.all_accounts())}
+        """Liveness check. Useful for confirming the server is up before a demo.
+
+        Answers whether the process is up, and nothing else. It used to include
+        the account count, which was handy for seeing at a glance that the seed
+        had run, but it was the wrong thing to put here twice over: it is a
+        business figure on the one route that needs no token, and counting rows
+        makes a liveness check get slower as the data grows - once this is MySQL
+        it is a query, and a slow database would start failing health checks on a
+        server that is perfectly alive.
+
+        The count is still available to an admin from GET /api/admin/reconciliation,
+        which reports `checked`.
+        """
+        return 200, {"status": "ok"}
 
     def register(self, request: Request) -> tuple[int, dict]:
         """Create a customer and log them straight in.
@@ -400,15 +453,17 @@ class BankAPI:
         """
         owner = request.actor
         requested_owner = request.optional("userId")
-        if requested_owner is not None and int(requested_owner) != request.actor.user_id:
-            if not request.actor.is_admin:
-                raise ApiError(403, "cannot open an account for another user")
-            owner = self.service.store.get_user(int(requested_owner))
+        if requested_owner is not None:
+            requested_owner = self._int_field(requested_owner, "userId")
+            if requested_owner != request.actor.user_id:
+                if not request.actor.is_admin:
+                    raise ApiError(403, "cannot open an account for another user")
+                owner = self.service.store.get_user(requested_owner)
 
         account = self.service.open_account(
             owner=owner,
             account_type=request.require("accountType"),
-            opening_balance=request.optional("openingBalance", "0.00"),
+            opening_balance=request.optional("openingBalance", 0),
         )
         return 201, {"account": account_json(account, owner)}
 
@@ -488,17 +543,18 @@ class BankAPI:
         that does not exist.
         """
         out, inn = self.service.transfer(
-            from_id=int(request.require("fromAccountId")),
-            to_id=int(request.require("toAccountId")),
+            from_id=self._int_field(request.require("fromAccountId"), "fromAccountId"),
+            to_id=self._int_field(request.require("toAccountId"), "toAccountId"),
             amount=request.require("amount"),
             actor=request.actor,
             client_txn_id=request.optional("clientTxnId"),
         )
         source = self.service.get_account_for(out.account_id, request.actor)
+        owner = self.service.store.get_user(source.user_id)
         return 201, {
             "debit": transaction_json(out),
             "credit": transaction_json(inn),
-            "account": account_json(source, request.actor),
+            "account": account_json(source, owner),
         }
 
     def _movement_response(self, txn, request: Request) -> tuple[int, dict]:
@@ -510,9 +566,12 @@ class BankAPI:
         moment two tabs are open. One request, one authoritative balance back.
         """
         account = self.service.get_account_for(txn.account_id, request.actor)
+        # The owner, looked up, rather than the caller. An admin acting on a
+        # customer's account would otherwise see their own name as userName.
+        owner = self.service.store.get_user(account.user_id)
         return 201, {
             "transaction": transaction_json(txn),
-            "account": account_json(account, request.actor),
+            "account": account_json(account, owner),
         }
 
     # ----------------------------------------------------------------- admin
@@ -536,9 +595,13 @@ class BankAPI:
         """Freeze or unfreeze. `frozen` is explicit rather than a toggle, so
         retrying a request that may or may not have landed is safe."""
         frozen = request.optional("frozen", True)
+        # Only a real true or false. bool("false") is True, so a client sending
+        # the word in quotes would freeze an account it meant to release.
+        if not isinstance(frozen, bool):
+            raise ApiError(400, "'frozen' must be true or false")
         account = self.service.set_frozen(
             account_id=request.params["id"],
-            frozen=bool(frozen),
+            frozen=frozen,
             reason=request.require("reason"),
             actor=request.actor,
         )
@@ -583,7 +646,7 @@ class BankAPI:
             "balanced": not broken,
             "checked": len(self.service.store.all_accounts()),
             "discrepancies": [
-                {"accountId": i, "balance": f"{b:.2f}", "ledgerSum": f"{s:.2f}"}
+                {"accountId": i, "balance": b, "ledgerSum": s}  # cents
                 for i, b, s in broken
             ],
         }

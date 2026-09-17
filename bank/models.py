@@ -12,10 +12,16 @@ Three object-oriented decisions worth defending in review:
    `balance == sum(ledger)` would be unenforceable.
 
 2. **Inheritance with a real difference.** `CheckingAccount` and `SavingsAccount`
-   differ in one rule: savings accounts hold a minimum balance. That difference
-   lives in an overridden `available_for_withdrawal()`, so the withdraw logic in
-   the service layer does not branch on account type. Adding a third account type
-   later means adding a class, not editing an `if`.
+   differ in one rule: how much of the balance may actually leave. That difference
+   lives in an overridden `minimum_balance`, read by `available_for_withdrawal()`,
+   so the withdraw logic in the service layer does not branch on account type.
+   Adding a third account type later means adding a class, not editing an `if`.
+
+   `SavingsAccount.MINIMUM` is 0.00 at the moment, which makes the two types
+   behave identically today. That is a policy setting, not a change of shape: the
+   polymorphic path is what the service layer calls either way, so a floor can
+   come back by editing one constant rather than by threading a new rule through
+   `withdraw`, `transfer` and the serializers.
 
 3. **Python has no method overloading.** That was question 2 of Module 2. Java
    picks between same-named methods by parameter list at compile time; Python
@@ -27,10 +33,9 @@ Three object-oriented decisions worth defending in review:
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal
 
 from .errors import InsufficientFunds
-from .money import ZERO, format_money, to_money
+from .money import format_money, to_cents
 
 # Ledger entry types. A transaction stores a positive amount and takes its
 # direction from the type, so this pair is the single source of truth for sign.
@@ -88,7 +93,7 @@ class User:
         return f"{self.name} <{self.email}>"
 
 
-@dataclass
+@dataclass(frozen=True)
 class Transaction:
     """One immutable ledger entry.
 
@@ -100,13 +105,18 @@ class Transaction:
     txn_id: int
     account_id: int
     txn_type: str
-    amount: Decimal
+    amount: int          # cents, always positive; the sign lives in txn_type
     client_txn_id: str | None = None
     created_at: datetime = field(default_factory=_now)
+    # Set only by an admin adjustment, so a correction is never mistaken for a
+    # customer's own deposit. The audit log records the same facts, but somebody
+    # reading one account's history should not have to cross-reference it.
+    adjusted_by: int | None = None
+    reason: str | None = None
 
     @property
-    def signed_amount(self) -> Decimal:
-        """What this entry contributes to the balance."""
+    def signed_amount(self) -> int:
+        """What this entry contributes to the balance, in cents."""
         return self.amount if self.txn_type in CREDIT_TYPES else -self.amount
 
     def __str__(self) -> str:
@@ -129,26 +139,26 @@ class Account:
     """
 
     def __init__(self, user_id: int, account_id: int | None = None,
-                 opening_balance: Decimal | str = ZERO, status: str = ACTIVE):
+                 opening_balance: int = 0, status: str = ACTIVE):
         self.account_id = account_id
         self.user_id = user_id
-        self._balance = to_money(opening_balance)
+        self._balance = to_cents(opening_balance)
         self.status = status
         self.created_at = _now()
 
     # ---- encapsulation ----
 
     @property
-    def balance(self) -> Decimal:
-        """Read-only on purpose. See the module docstring."""
+    def balance(self) -> int:
+        """Cents. Read-only on purpose - see the module docstring."""
         return self._balance
 
-    def _apply(self, delta: Decimal) -> None:
+    def _apply(self, delta: int) -> None:
         """Internal. Only the service layer calls this, and only with a matching
         ledger entry. The leading underscore is the signal that reaching for this
         from ordinary code means something has gone wrong."""
-        new_balance = self._balance + to_money(delta)
-        if new_balance < ZERO:
+        new_balance = self._balance + to_cents(delta)
+        if new_balance < 0:
             raise InsufficientFunds("operation would take the balance below zero")
         self._balance = new_balance
 
@@ -159,15 +169,16 @@ class Account:
         raise NotImplementedError
 
     @property
-    def minimum_balance(self) -> Decimal:
-        return ZERO
+    def minimum_balance(self) -> int:
+        return 0
 
-    def available_for_withdrawal(self) -> Decimal:
-        """How much may actually leave. Subclasses change this, not the caller."""
+    def available_for_withdrawal(self) -> int:
+        """How much may actually leave, in cents. Subclasses change this, not the
+        caller."""
         return self._balance - self.minimum_balance
 
-    def can_withdraw(self, amount: Decimal) -> bool:
-        return self.is_active and to_money(amount) <= self.available_for_withdrawal()
+    def can_withdraw(self, amount: int) -> bool:
+        return self.is_active and to_cents(amount) <= self.available_for_withdrawal()
 
     @property
     def is_active(self) -> bool:
@@ -191,16 +202,22 @@ class CheckingAccount(Account):
 class SavingsAccount(Account):
     """Holds a minimum balance. This is the only behavioural difference, and it
     is expressed by overriding `minimum_balance` rather than by the service layer
-    checking `isinstance`."""
+    checking `isinstance`.
 
-    MINIMUM = Decimal("25.00")
+    The minimum is currently 0.00, so in practice a savings account behaves like
+    a checking account today. The override is still the seam: raising this one
+    constant is the entire change needed to reintroduce a floor, and no service,
+    route or test has to learn about it.
+    """
+
+    MINIMUM = 0  # cents
 
     @property
     def account_type(self) -> str:
         return "SAVINGS"
 
     @property
-    def minimum_balance(self) -> Decimal:
+    def minimum_balance(self) -> int:
         return self.MINIMUM
 
 

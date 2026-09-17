@@ -12,6 +12,17 @@ env/
 *.pem
 *.key
 
+# AI customization files
+AGENTS.md
+.github/
+
+# MongoDB VS Code extension scratch playgrounds. These are personal scratch
+# files and they hold whatever you last pasted into them - including, easily, a
+# connection string. A real seeding script belongs in the repo under a name that
+# is not "playground".
+*.mongodb.js
+playground-*.mongodb
+
 # Tooling
 .pytest_cache/
 .coverage

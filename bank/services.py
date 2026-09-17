@@ -15,7 +15,8 @@ Those are correct and incomplete. The rules actually enforced below:
     3. Frozen accounts reject all customer-initiated movement.
     4. Every balance change writes exactly one ledger entry, always.
     5. A resubmitted client transaction id is rejected rather than applied twice.
-    6. A user may only touch their own accounts. Admins may read any.
+    6. A user may only touch their own accounts. Admins may read any account,
+       but may not move money in one: that is what adjust() is for.
     7. Admins adjust by posting a ledger entry with a reason. Never by setting
        a balance.
 
@@ -25,9 +26,6 @@ No imports from any web framework or database library. The whole module can be
 exercised by calling functions, which is what makes the tests fast and is what
 "clean separation" has to mean in practice.
 """
-from decimal import Decimal
-import threading
-
 from .errors import (
     AccountNotActive, AccountNotFound, DuplicateTransaction,
     InsufficientFunds, NotAuthorized,
@@ -36,7 +34,7 @@ from .models import (
     ACTIVE, DEPOSIT, FROZEN, ROLE_ADMIN, TRANSFER_IN, TRANSFER_OUT, WITHDRAWAL,
     Account, Transaction, User, make_account,
 )
-from .money import ZERO, parse_amount
+from .money import parse_amount
 from .security import hash_password, verify_password
 
 
@@ -47,27 +45,31 @@ class BankService:
     framework. Everything this class needs arrives as an argument. That is what
     lets `test_bank.py` exercise every rule with a plain function call, and it is
     what "clean MVC separation" has to mean in practice rather than as a diagram.
+
+    Every method that changes data runs inside `self.store.atomic()`. The HTTP
+    server is threaded, so two requests really can run at once, and the natural
+    "read the balance, check it, write the new balance" sequence would otherwise
+    let two withdrawals both pass the check. In memory atomic() is a lock; against
+    MongoDB it is a multi-document transaction, which also holds across separate
+    server processes. Either way, a failure part-way through leaves nothing half
+    applied.
+
+    Balances change on the Account object through `_apply`, and are then handed to
+    `store.save_balance`. In memory that second call does nothing, because the
+    object is the stored record. In a database it is the write.
     """
 
     def __init__(self, store):
         self.store = store
-        # Admin actions, append-only: (actor_user_id, action, account_id, reason).
-        self.audit: list[tuple] = []
-        # Every method that changes money takes this lock.
-        #
-        # Single-threaded tests and the demo never need it. The HTTP server in
-        # api.py is threaded, so two requests genuinely can run at once, and the
-        # natural "read the balance, check it, write the new balance" sequence
-        # lets two simultaneous withdrawals both pass the check and both write.
-        #
-        # An RLock (rather than a plain Lock) because these methods call each
-        # other - `transfer` uses the same guarded internals as `withdraw` - and a
-        # plain Lock would deadlock the moment one held method called another.
-        #
-        # This is the in-memory stand-in for a database transaction. When MySQL
-        # arrives the lock is replaced by the conditional UPDATE in the README,
-        # which is the version that holds across more than one process.
-        self._lock = threading.RLock()
+
+    @property
+    def audit(self) -> list[tuple]:
+        """Admin actions, oldest first: (actor_user_id, action, account_id, reason).
+
+        Kept by the store rather than on this object, so that with a database it
+        survives a restart along with the balances it explains.
+        """
+        return self.store.audit_entries()
 
     # ------------------------------------------------------------------ users
 
@@ -97,7 +99,7 @@ class BankService:
             raise ValueError("pass password or password_hash, not both")
         if password is not None:
             password_hash = hash_password(password)
-        with self._lock:
+        with self.store.atomic():
             return self.store.add_user(name.strip(), email, role, password_hash)
 
     def authenticate(self, email: str, password: str) -> User:
@@ -134,18 +136,20 @@ class BankService:
     # --------------------------------------------------------------- accounts
 
     def open_account(self, owner: User, account_type: str,
-                     opening_balance="0.00") -> Account:
-        """Opening balance is not a free gift. If it is non-zero it gets a ledger
-        entry like any other credit, or reconciliation is broken before the
-        account is a second old."""
+                     opening_balance: int = 0) -> Account:
+        """Opening balance is in cents, and is not a free gift. If it is non-zero
+        it gets a ledger entry like any other credit, or reconciliation is broken
+        before the account is a second old."""
         # parse_amount rejects zero, so an opening balance of zero skips it
-        # entirely rather than being validated into a spurious error.
-        opening = parse_amount(opening_balance) if str(opening_balance) not in ("0", "0.00") else ZERO
-        with self._lock:
+        # entirely rather than being validated into a spurious error. Opening an
+        # empty account is a normal thing to do; depositing nothing is not.
+        opening = parse_amount(opening_balance) if opening_balance else 0
+        with self.store.atomic():
             account = make_account(account_type, user_id=owner.user_id)
             self.store.add_account(account)
-            if opening > ZERO:
+            if opening > 0:
                 account._apply(opening)
+                self.store.save_balance(account)
                 self._post(account.account_id, DEPOSIT, opening, None)
             return account
 
@@ -165,6 +169,20 @@ class BankService:
             raise AccountNotFound(f"no account with id {account_id}")
         return account
 
+    def get_account_to_move_money(self, account_id: int, actor: User) -> Account:
+        """Fetch an account the actor may move money into or out of.
+
+        Ownership only, and an admin is not an exception. Reading any account is
+        a normal admin power; moving a customer's money through the ordinary
+        customer route is not, because it leaves no record of who did it. An
+        admin who has to change a balance uses adjust(), which demands a written
+        reason and writes an audit row.
+        """
+        account = self.store.get_account(account_id)
+        if account.user_id != actor.user_id:
+            raise AccountNotFound(f"no account with id {account_id}")
+        return account
+
     def my_accounts(self, actor: User) -> list[Account]:
         return self.store.accounts_for_user(actor.user_id)
 
@@ -175,23 +193,24 @@ class BankService:
         # Validate before touching anything. parse_amount raises on a negative, a
         # float, three decimal places, or an amount over the per-transaction ceiling.
         amount = parse_amount(amount)
-        with self._lock:
+        with self.store.atomic():
             # Ownership first: a caller who may not see this account must not be
             # able to learn from the error whether it is frozen or does not exist.
-            account = self.get_account_for(account_id, actor)
+            account = self.get_account_to_move_money(account_id, actor)
             self._guard_idempotency(client_txn_id)
             if not account.is_active:
                 raise AccountNotActive(f"account {account_id} is {account.status.lower()}")
 
-            # These two lines are the invariant. Nothing may come between them.
+            # The balance change and its ledger entry commit together or not at all.
             account._apply(amount)
+            self.store.save_balance(account)
             return self._post(account_id, DEPOSIT, amount, client_txn_id)
 
     def withdraw(self, account_id: int, amount, actor: User,
                  client_txn_id: str | None = None) -> Transaction:
         amount = parse_amount(amount)
-        with self._lock:
-            account = self.get_account_for(account_id, actor)
+        with self.store.atomic():
+            account = self.get_account_to_move_money(account_id, actor)
             self._guard_idempotency(client_txn_id)
             if not account.is_active:
                 raise AccountNotActive(f"account {account_id} is {account.status.lower()}")
@@ -206,24 +225,25 @@ class BankService:
                     f"insufficient funds: requested {amount}, available {available}"
                 )
 
-            # Check and write sit inside one lock, so no second request can slip
-            # between them and spend the same money twice.
+            # Check and write sit inside one atomic block, so no second request can
+            # slip between them and spend the same money twice.
             account._apply(-amount)
+            self.store.save_balance(account)
             return self._post(account_id, WITHDRAWAL, amount, client_txn_id)
 
     def transfer(self, from_id: int, to_id: int, amount, actor: User,
                  client_txn_id: str | None = None) -> tuple[Transaction, Transaction]:
         """Both legs happen or neither does.
 
-        In memory that is easy because nothing can interrupt this method. With a
-        real database it needs an explicit transaction, and that is one of the
-        things to carry forward when the database lands.
+        store.atomic() is what makes that true: a lock in memory, and in MongoDB a
+        multi-document transaction, where both balance updates and both ledger
+        entries commit together or roll back together.
         """
         amount = parse_amount(amount)
         if from_id == to_id:
             raise ValueError("cannot transfer to the same account")
-        with self._lock:
-            source = self.get_account_for(from_id, actor)   # ownership enforced
+        with self.store.atomic():
+            source = self.get_account_to_move_money(from_id, actor)  # owner only
             target = self.store.get_account(to_id)          # recipient need not be yours
             self._guard_idempotency(client_txn_id)
             if not source.is_active or not target.is_active:
@@ -238,6 +258,8 @@ class BankService:
             # run, so nothing below raises and leaves one leg applied.
             source._apply(-amount)
             target._apply(amount)
+            self.store.save_balance(source)
+            self.store.save_balance(target)
             out = self._post(from_id, TRANSFER_OUT, amount, client_txn_id)
             inn = self._post(to_id, TRANSFER_IN, amount, None)
             return out, inn
@@ -258,9 +280,10 @@ class BankService:
     def set_frozen(self, account_id: int, frozen: bool, reason: str, actor: User) -> Account:
         self._require_admin(actor)
         self._require_reason(reason)
-        with self._lock:
+        with self.store.atomic():
             account = self.store.get_account(account_id)
             account.status = FROZEN if frozen else ACTIVE
+            self.store.save_status(account)
             self._log(actor, "FREEZE" if frozen else "UNFREEZE", account_id, reason)
             return account
 
@@ -281,13 +304,15 @@ class BankService:
         amount = parse_amount(amount)
         if direction not in ("CREDIT", "DEBIT"):
             raise ValueError("direction must be CREDIT or DEBIT")
-        with self._lock:
+        with self.store.atomic():
             account = self.store.get_account(account_id)
 
             delta = amount if direction == "CREDIT" else -amount
             account._apply(delta)  # raises InsufficientFunds if it would go negative
+            self.store.save_balance(account)
             txn = self._post(account_id, DEPOSIT if direction == "CREDIT" else WITHDRAWAL,
-                             amount, None)
+                             amount, None, adjusted_by=actor.user_id,
+                             reason=reason.strip())
             self._log(actor, f"ADJUST_{direction}", account_id, reason)
             return txn
 
@@ -303,9 +328,9 @@ class BankService:
         """The admin audit trail. Read-only, and a copy, so a caller cannot append
         to it by holding the list."""
         self._require_admin(actor)
-        return list(self.audit)
+        return self.store.audit_entries()
 
-    def reconciliation_report(self, actor: User) -> list[tuple[int, Decimal, Decimal]]:
+    def reconciliation_report(self, actor: User) -> list[tuple[int, int, int]]:
         """`reconcile_all()` with the role check attached.
 
         Exists so the controller has a public method to call. `reconcile_all()`
@@ -317,8 +342,9 @@ class BankService:
 
     # ------------------------------------------------------------ invariants
 
-    def reconcile(self, account_id: int) -> tuple[Decimal, Decimal]:
-        """Returns (stored_balance, ledger_sum). These must always be equal.
+    def reconcile(self, account_id: int) -> tuple[int, int]:
+        """Returns (stored_balance, ledger_sum) in cents. These must always be
+        equal, and on integers that equality is exact.
 
         Run this after every test and in the demo. If it ever disagrees, a balance
         was changed somewhere without a matching ledger entry.
@@ -326,7 +352,7 @@ class BankService:
         account = self.store.get_account(account_id)
         return account.balance, self.store.ledger_sum(account_id)
 
-    def reconcile_all(self) -> list[tuple[int, Decimal, Decimal]]:
+    def reconcile_all(self) -> list[tuple[int, int, int]]:
         """Every account that fails reconciliation. Should always be empty."""
         broken = []
         for account in self.store.all_accounts():
@@ -337,10 +363,15 @@ class BankService:
 
     # -------------------------------------------------------------- internals
 
-    def _post(self, account_id: int, txn_type: str, amount: Decimal,
-              client_txn_id: str | None) -> Transaction:
+    def _post(self, account_id: int, txn_type: str, amount: int,
+              client_txn_id: str | None, adjusted_by: int | None = None,
+              reason: str | None = None) -> Transaction:
         """Write the ledger entry. Called immediately after every balance change,
-        with no branch in between that could skip it."""
+        with no branch in between that could skip it.
+
+        adjusted_by and reason are set only by adjust(), which is what makes an
+        admin correction distinguishable from a customer's own deposit.
+        """
         return self.store.add_transaction(
             Transaction(
                 txn_id=self.store.next_txn_id(),
@@ -348,6 +379,8 @@ class BankService:
                 txn_type=txn_type,
                 amount=amount,
                 client_txn_id=client_txn_id,
+                adjusted_by=adjusted_by,
+                reason=reason,
             )
         )
 
@@ -373,4 +406,4 @@ class BankService:
             raise ValueError("a written reason of at least 10 characters is required")
 
     def _log(self, actor: User, action: str, account_id: int | None, reason: str) -> None:
-        self.audit.append((actor.user_id, action, account_id, reason.strip()))
+        self.store.add_audit_entry(actor.user_id, action, account_id, reason.strip())
