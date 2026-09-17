@@ -12,8 +12,8 @@ env/
 *.pem
 *.key
 
-# AI customization files
-AGENTS.md
+# AI customization files. AGENTS.md IS committed now: it is the team's
+# shared TODO list, so it has to be in the repo everyone clones.
 .github/
 
 # MongoDB VS Code extension scratch playgrounds. These are personal scratch
@@ -22,6 +22,12 @@ AGENTS.md
 # is not "playground".
 *.mongodb.js
 playground-*.mongodb
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-error.log*
 
 # Tooling
 .pytest_cache/

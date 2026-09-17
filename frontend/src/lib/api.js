@@ -1,0 +1,116 @@
+/* The one place that talks to the backend.
+ *
+ * Every call goes through `request`, so the token header, the JSON encoding and
+ * the error shape are handled once rather than in every page. Pages should call
+ * the named functions below and never call fetch directly - that way, when the
+ * auth scheme or the base URL changes, it changes here.
+ *
+ * Amounts are integer cents, in and out. See src/lib/money.js.
+ */
+
+const BASE = '/api' // the dev server proxies this to the Python backend
+
+// The token lives in localStorage so a refresh does not log you out. It expires
+// an hour after it is issued; a 401 from any call means it is gone or stale.
+const TOKEN_KEY = 'bank.token'
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token) {
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}
+
+/* Thrown by every failed call. The backend answers every failure with the same
+ * { error } shape, so there is exactly one thing to unwrap. `status` is kept so
+ * a caller can tell "your token expired" (401) from "that is not allowed" (403)
+ * without reading the message. */
+export class ApiError extends Error {
+  constructor(status, message) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+async function request(method, path, body) {
+  const headers = {}
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+
+  const response = await fetch(BASE + path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+
+  // Every response from this API is JSON, but a crashed or missing server is
+  // not, so do not let a parse failure surface as an unreadable stack trace.
+  let payload
+  try {
+    payload = await response.json()
+  } catch {
+    throw new ApiError(response.status, 'the server did not answer with JSON')
+  }
+
+  if (!response.ok) throw new ApiError(response.status, payload.error ?? 'request failed')
+  return payload
+}
+
+const get = (path) => request('GET', path)
+const post = (path, body) => request('POST', path, body)
+
+/* ------------------------------------------------------------------ auth */
+
+export const health = () => get('/health')
+export const register = (name, email, password) => post('/auth/register', { name, email, password })
+export const login = (email, password) => post('/auth/login', { email, password })
+export const me = () => get('/auth/me')
+
+/* -------------------------------------------------------------- accounts */
+
+export const listAccounts = () => get('/accounts')
+export const getAccount = (accountId) => get(`/accounts/${accountId}`)
+
+// accountType is 'CHECKING' or 'SAVINGS'; openingBalance is cents.
+export const openAccount = (accountType, openingBalance = 0) =>
+  post('/accounts', { accountType, openingBalance })
+
+/* ---------------------------------------------------------- transactions */
+
+// clientTxnId is optional but worth sending: the backend refuses a repeat of an
+// id it has already accepted, so a double-clicked button cannot move the money
+// twice. crypto.randomUUID() per submission attempt is enough.
+export const deposit = (accountId, amount, clientTxnId) =>
+  post(`/accounts/${accountId}/deposit`, { amount, clientTxnId })
+
+export const withdraw = (accountId, amount, clientTxnId) =>
+  post(`/accounts/${accountId}/withdraw`, { amount, clientTxnId })
+
+export const transfer = (fromAccountId, toAccountId, amount, clientTxnId) =>
+  post('/transfers', { fromAccountId, toAccountId, amount, clientTxnId })
+
+// Comes back as a page envelope: { items, page, pageSize, total, totalPages }.
+export function listTransactions(accountId, { page = 1, pageSize = 20, type } = {}) {
+  const query = new URLSearchParams({ page, pageSize })
+  if (type) query.set('type', type)
+  return get(`/accounts/${accountId}/transactions?${query}`)
+}
+
+/* ------------------------------------------------------------------ admin */
+/* These answer "admin role required" unless the logged-in user's role is ADMIN. */
+
+export const adminUsers = () => get('/admin/users')
+export const adminAccounts = () => get('/admin/accounts')
+export const adminAudit = () => get('/admin/audit')
+export const adminReconciliation = () => get('/admin/reconciliation')
+
+export const adminFreeze = (accountId, frozen, reason) =>
+  post(`/admin/accounts/${accountId}/freeze`, { frozen, reason })
+
+// direction is 'CREDIT' or 'DEBIT'; reason must be at least 10 characters.
+export const adminAdjust = (accountId, amount, direction, reason) =>
+  post(`/admin/accounts/${accountId}/adjust`, { amount, direction, reason })

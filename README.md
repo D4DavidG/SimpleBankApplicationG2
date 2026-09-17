@@ -6,15 +6,18 @@ admin surface. Pure Python, standard library only. **Nothing to `pip install`.**
 ```bash
 python demo.py                     # walkthrough of every rule, no server needed
 python demo.py --step              # the same, paused between sections, for presenting
-python console.py --mongo          # type your own values in, one prompt at a time
-python simulate.py                 # live traffic to Atlas, watchable in a browser
 python demo.py --step --mongo      # ... against Atlas, ending in a persistence proof
-python -m unittest -q              # 107 tests (12 Mongo ones skip without a cluster)
+python -m unittest -q              # 109 tests (14 Mongo ones skip without a cluster)
 python server.py                   # REST API on http://127.0.0.1:8000
+cd frontend && npm run dev         # React UI on http://localhost:5173 (needs the API up)
 python tools/export_postman.py     # regenerate postman_collection.json
 ```
 
 Requires Python 3.10 or newer (the code uses `str | None` type syntax).
+
+Starting work? Read **[AGENTS.md](AGENTS.md)** first: current state, the TODO
+list, and the conventions that will bite you. Frontend plan:
+**[frontend/PLAN.md](frontend/PLAN.md)**.
 
 ---
 
@@ -42,8 +45,8 @@ Requires Python 3.10 or newer (the code uses `str | None` type syntax).
 
 | | |
 | --- | --- |
-| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 17 routes, role-based authorization, a persisted audit log, seed data, 107 tests, a MongoDB Atlas repository, a console demo, a generated Postman collection |
-| **Not here** | A database, a frontend, any third-party package |
+| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 17 routes, role-based authorization, a persisted audit log, seed data, 109 tests, a MongoDB Atlas repository, a scripted demo, a generated Postman collection |
+| **Not here** | A database, a finished frontend, any third-party package on the Python side |
 
 The backend still imports nothing but the standard library, and
 `python server.py` still runs on a clean machine with nothing installed.
@@ -87,64 +90,7 @@ python demo.py --step --mongo      # ... and stores it all in MongoDB Atlas
 `--step` exists so the narration happens between sections instead of racing a
 wall of scrolling output.
 
-### Type the values in yourself
-
-```bash
-python console.py                  # in memory
-python console.py --mongo          # writes to Atlas and stays there
-python console.py --mongo --reset  # ... starting from empty
-```
-
-Press `?` at the menu for a glossary: every collection, every term the console
-prints, and what each refusal proves. It is there so the question can be
-answered off the screen rather than from memory.
-
-A numbered menu that prompts one field at a time — Name, Email, Password, User
-or Admin — then opens accounts, deposits, withdraws, transfers and runs the admin
-actions. `demo.py` is the scripted version; this is the one for when somebody
-watching wants to pick the name or the amount.
-
-Amounts are typed in dollars (`25.50`) and the conversion to integer cents is
-printed as it happens, which makes the money design visible rather than
-something you have to describe.
-
-Every option calls the same service method the matching REST route calls, so a
-rule refusing something here refuses it over HTTP too. Refusals print and return
-you to the menu — nothing can raise out of it mid-demo.
-
-By default `--mongo` uses its own database (`$MONGODB_DB` + `_console`), so
-typing invented names never touches the shared demo data.
-
-### Watch it land in the browser
-
-```bash
-python simulate.py                 # until Ctrl+C, about one action every 2s
-python simulate.py --reset         # from an empty database
-python simulate.py --delay 5       # slower, for narrating
-python simulate.py --fast --steps 200   # fill a database quickly
-```
-
-Generates ordinary activity — people open accounts, deposit, withdraw, send each
-other money, and occasionally an admin freezes something — against
-`$MONGODB_DB` + `_sim`. Put the **Atlas Data Explorer**
-(`cloud.mongodb.com` → Cluster0 → Browse Collections) beside the terminal and
-press its refresh icon: **Atlas does not refresh by itself**, which is the most
-confusing thing about watching a database in a browser.
-
-Every line names the collection and the `_id` it wrote, so a line on screen maps
-to a document you can click on:
-
-```
-14:51:31  [transactions _id=13  ] Orla Grimaldi deposited 1,031.00 to #3  -> 3,446.00
-14:51:31  [REFUSED      --------] Luca Lindqvist tried to withdraw 3,499.00 from #1
-                                 -> InsufficientFunds: requested 349900, available 282100
-```
-
-Withdrawals are deliberately sized to overdraw sometimes, and about one
-submission in twelve is resent with the reference just used. Those print as
-refusals and write nothing — which is the thing worth catching on screen, because
-the database is exactly where a missing rule would show up as a balance that
-should not exist. It reconciles every account on the way out. `--mongo` adds a twelfth section that opens a **second,
+`--mongo` adds a twelfth section that opens a **second,
 independent connection** and reads the balances and the audit log back out of
 Atlas — the one claim the in-memory version cannot make. It uses its own
 `simple_bank_demo` database and wipes it on the way in, so it never touches the
@@ -251,8 +197,6 @@ table is the index.
 | File | What it does |
 | --- | --- |
 | [server.py](server.py) | Entry point. Composes store → service → API, seeds, and serves. |
-| [console.py](console.py) | **Interactive.** Prompts for a name, an email, an amount, and does it. For demonstrating live when the room wants to choose the values. `--mongo` writes to Atlas and prints the collection and `_id` to open in the browser; option 9 reads it back through a second connection; `?` is a glossary of everything on screen. |
-| [simulate.py](simulate.py) | **Live traffic.** Generates ordinary banking activity against Atlas, paced so you can watch documents appear in the Atlas Data Explorer. Every line names the collection and `_id` it wrote. Refusals are part of the simulation. |
 | [demo.py](demo.py) | Console walkthrough of every rule, then the same rules over HTTP. `--step` pauses between sections for presenting; `--mongo` runs it against Atlas and ends by reading everything back through a second connection. |
 | [test_bank.py](test_bank.py) | 34 tests of the business rules. Imports no HTTP anything. |
 | [test_api.py](test_api.py) | 59 tests of the controller: routing, auth, error mapping, serialization, the seed, and one end-to-end pass over a real socket. |
@@ -728,7 +672,7 @@ during integration week instead of the afternoon it was introduced.
 | --- | --- |
 | **A database** | **Done for MongoDB.** With `MONGODB_URI` and `MONGODB_DB` in `.env`, `python server.py` serves from Atlas and the data survives a restart; `--memory` is the way back. See [mongo.md](mongo.md). What is still open is only which database is *graded* — see section 14. |
 | **A `seed.sql` for MySQL** | Written in `seed_data_bank_app.md` §3–4 but not extracted, and its amounts are in `DECIMAL`. If MySQL is chosen they become `BIGINT` cents — and §5, the MongoDB version, must not be run at all: it writes `Decimal128`, which this codebase refuses. |
-| **A frontend** | Today's scope was the backend. The API is CORS-enabled for a dev server on another port, and money is serialized as integer cents, so the client divides by 100 to display and never has to undo a float. |
+| **A frontend** | **Scaffolded.** `frontend/` is a React + Vite app with routing, login, register, the account list and a typed-up API layer in `src/lib/api.js`; the remaining screens are stubs, one file each, waiting to be claimed. See [frontend/README.md](frontend/README.md). The API is CORS-enabled for a dev server on another port, and money is serialized as integer cents, so the client divides by 100 to display and never has to undo a float. |
 | **httpOnly cookie sessions** | Tokens currently travel in an `Authorization` header, which a React client stores itself. A token in `localStorage` is readable by any injected script, so the cookie version is the better end state — it needs a real CSRF story and an exact-origin CORS policy, not `*`. |
 | **Refresh tokens** | One hour, then log in again. A refresh lifecycle and a session-timeout warning with an extend option (WCAG 2.2.1) belong with the frontend work. |
 | **Rate limiting on login** | PBKDF2 makes each guess cost ~0.6s, which is real but not a substitute for lockout or backoff. |
@@ -785,5 +729,5 @@ These block the next phase, not this one.
 | --- | --- |
 | **Source code (GitHub)** | This repository. `.env.example` committed, `.env` gitignored, no secrets. |
 | **SQL script** | **Not in this repo yet.** Written and verified in the `seed_data_bank_app.md` planning document, §3–4 (MySQL) and §5 (MongoDB). Drop that document into `docs/` and extract the schema to `sql/schema.sql` once the database question is settled. |
-| **Screenshots of UI** | Blocked on the frontend. |
+| **Screenshots of UI** | Waiting on the frontend screens; the app itself runs (`cd frontend && npm run dev`). |
 | **Postman collection** | [postman_collection.json](postman_collection.json) — 28 requests, generated from the route table, including a "Failure cases" folder covering overdraft, negative and malformed amounts, a frozen account, a replayed submission, and reading another user's account. |

@@ -1,0 +1,138 @@
+/* Theme tokens and the small set of shared styles.
+ *
+ * The palette is Citi's: deep navy, a brighter blue for links, and the red from
+ * the arc over the "t". Colours only - we do not use Citi's logo, wordmark or
+ * name anywhere, because a banking page carrying a real bank's marks is a
+ * different thing from one borrowing its palette.
+ *
+ * Every ratio below was computed, not eyeballed. WCAG wants 4.5:1 for body text
+ * and 3:1 for the border of anything you can interact with - and this app is
+ * almost entirely form fields, so that second number is the one that matters.
+ */
+
+:root {
+  /* brand */
+  --navy: #003b70;         /* 11.29:1 with white - nav, primary buttons */
+  --blue: #056dae;         /* 5.52:1 both ways   - links, focus rings */
+  --red: #d9261c;          /*  4.95:1 with white  - errors, debits */
+  --green: #0a7d3f;        /*  5.23:1 on white    - credits */
+
+  /* surfaces and text */
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --text: #1a1d21;         /* 16.91:1 on surface */
+  --muted: #5c6672;        /*  5.84:1 on surface, 5.39:1 on bg */
+
+  /* Two borders on purpose. The decorative one divides cards and has no
+   * contrast requirement; the field one outlines things you can click or type
+   * in and must clear 3:1 (WCAG 1.4.11). */
+  --border: #dde1e7;
+  --field-border: #7b8794; /* 3.66:1 on surface, 3.38:1 on bg */
+
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--text);
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; background: var(--bg); }
+
+/* Never suppress this. A keyboard-only user has to be able to complete a
+ * deposit, and that means always being able to see where they are. */
+:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ frame */
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--navy);
+  color: #fff;
+}
+
+.nav-brand { font-weight: 700; font-size: 1.1rem; color: #fff; text-decoration: none; }
+.nav-links { display: flex; gap: 1rem; }
+.nav a { color: #fff; text-decoration: none; }
+.nav a.active { text-decoration: underline; text-underline-offset: 4px; }
+.nav-user { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; }
+
+.page { max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; }
+
+/* ---------------------------------------------------------------- pieces */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.narrow { max-width: 420px; margin-inline: auto; }
+
+h1 { font-size: 1.4rem; margin-top: 0; color: var(--navy); }
+
+a { color: var(--blue); }
+
+form { display: flex; flex-direction: column; gap: 0.75rem; }
+
+label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; color: var(--muted); }
+
+input, select {
+  padding: 0.5rem;
+  border: 1px solid var(--field-border);
+  border-radius: 4px;
+  font-size: 1rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* 44px minimum target (WCAG 2.5.8). Nobody notices when it is right. */
+button {
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--navy);
+  border-radius: 4px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { background: #00294e; }
+button:disabled { opacity: 0.6; cursor: default; }
+
+.account-list { list-style: none; padding: 0; }
+.account-list li { display: flex; align-items: center; gap: 1rem; }
+
+/* Tabular figures so a column of balances lines up on the decimal point and
+ * does not jitter when one updates. */
+.balance {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Credits and debits carry a sign as well as a colour. Red/green is the most
+ * common colour-vision axis, so colour alone would leave some people with no
+ * signal at all (WCAG 1.4.1). */
+.credit { color: var(--green); }
+.debit { color: var(--red); }
+
+.badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  background: #fde2e1;
+  color: var(--red);
+}
+
+.error { color: var(--red); }
+.hint { color: var(--muted); font-size: 0.85rem; }
+
+code { background: var(--bg); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85em; }
