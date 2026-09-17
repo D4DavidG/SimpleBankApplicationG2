@@ -1,20 +1,23 @@
-/* Brief 7.5. One amount input, one submit button.
- *
- * TODO
- *   - parseDollars(input) -> cents
- *   - api.withdraw(accountId, cents, crypto.randomUUID())
- *   - the backend checks against availableForWithdrawal, so check the same
- *     field client-side rather than balance
- *   - "insufficient funds" and "account is frozen" come back as ApiError.message
- */
-import { useParams } from 'react-router-dom'
-import Stub from '../components/Stub'
+/* Brief 7.5. The mirror of Deposit - see that file for why the form is shared. */
+import { useState } from 'react'
+import { useAuth } from '../context/auth-context'
+import AccountPicker from '../components/AccountPicker'
+import TransactionMenu from './TransactionMenu'
+import NoAccountsYet from '../components/NoAccountsYet'
 
 export default function Withdraw() {
-  const { accountId } = useParams()
+  const { accounts, refreshAccounts } = useAuth()
+  const [id, setId] = useState(accounts[0]?.accountId ?? '')
+  const account = accounts.find((a) => a.accountId === Number(id))
+
+  if (accounts.length === 0) return <NoAccountsYet action="withdraw from" />
+
   return (
-    <Stub title={`Withdraw from #${accountId}`}>
-      <p><code>api.withdraw(accountId, amountInCents, clientTxnId)</code></p>
-    </Stub>
+    <div className="card profile">
+      <h1>Withdraw</h1>
+      <AccountPicker accounts={accounts} value={id} onChange={setId} label="Withdraw from" />
+      <TransactionMenu account={account} fixedKind="WITHDRAW"
+                       onAccountChange={() => refreshAccounts()} />
+    </div>
   )
 }

@@ -252,7 +252,36 @@ class SavingsAccount(Account):
         return self.MINIMUM
 
 
-ACCOUNT_TYPES = {"CHECKING": CheckingAccount, "SAVINGS": SavingsAccount}
+class CreditAccount(Account):
+    """The credit card product.
+
+    WHAT THIS IS NOT, AND IT MATTERS
+    --------------------------------
+    A real credit account is the mirror image of the other two: you spend money
+    you do not have, the balance goes negative, and a credit *limit* says how
+    far. This one cannot do that. `Account._apply` refuses to take a balance
+    below zero and `can_withdraw` measures against what is actually in there, so
+    this behaves exactly like a checking account that happens to be a different
+    colour on screen.
+
+    That is a deliberate stopping point, not an oversight. Letting a balance go
+    negative touches the overdraft rule, the reconciliation report and every
+    `available_for_withdrawal` caller at once, and none of that is in the brief.
+    Doing it properly means giving Account a `credit_limit`, letting
+    `minimum_balance` return a negative number, and revisiting the reconciliation
+    query - at which point the seam below is where it starts.
+    """
+
+    @property
+    def account_type(self) -> str:
+        return "CREDIT"
+
+
+ACCOUNT_TYPES = {
+    "CHECKING": CheckingAccount,
+    "SAVINGS": SavingsAccount,
+    "CREDIT": CreditAccount,
+}
 
 
 def make_account(account_type: str, user_id: int, **kwargs) -> Account:

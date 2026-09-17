@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import * as api from '../lib/api'
 import { formatCents } from '../lib/money'
+import { accountLabel, accountTone } from '../lib/accounts'
 
 export default function AccountDetails() {
   const { accountId } = useParams()
@@ -61,18 +62,18 @@ export default function AccountDetails() {
     )
   }
 
-  /* Same colour this account wears on the home page, so arriving here from a
-   * bar is obviously the same account. Picked by accountId, not by position, so
-   * it does not change when another account is closed. */
-  const tint = `tint-${account.accountId % 6}`
+  /* The whole card wears the account's colour, not a stripe of it: this is the
+   * page about that one account, so the colour is the subject rather than a
+   * label on it. The rows inside stay white, because dark text on a saturated
+   * fill is the one thing these colours cannot carry - see index.css. */
+  const tone = accountTone(account)
 
   return (
-    <div className={`card profile ${tint}`}>
-      <div className="profile-head">
-        {/* No account number. The type and the owner are what a person
-            recognises; the id is a database key and stays in the URL. */}
-        <h1>{account.accountType} account</h1>
+    <div className={`card account-card tone-${tone}`}>
+      <div className="account-card-head">
+        <h1>{accountLabel(account)} account</h1>
         {account.status === 'FROZEN' && <span className="badge">FROZEN</span>}
+        <span className="account-card-balance">{formatCents(account.balance)}</span>
       </div>
 
       <dl className="detail-rows">
@@ -89,7 +90,8 @@ export default function AccountDetails() {
       <div className="actions">
         <Link className="action lift" to={`/accounts/${account.accountId}/deposit`}>Deposit</Link>
         <Link className="action lift" to={`/accounts/${account.accountId}/withdraw`}>Withdraw</Link>
-        <Link className="action lift" to={`/accounts/${account.accountId}/transactions`}>Transactions</Link>
+        <Link className="action lift" to={`/accounts/${account.accountId}/transactions`}>History</Link>
+        <Link className="action lift" to="/transfer">Transfer</Link>
       </div>
     </div>
   )

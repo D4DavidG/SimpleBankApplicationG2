@@ -11,17 +11,35 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/auth-context'
 import { formatCents } from '../lib/money'
+import { accountLabel, accountTone } from '../lib/accounts'
 import LoginForm from '../components/LoginForm'
 import AboutUs from '../components/AboutUs'
+import AdminAuditLog from '../components/AdminAuditLog'
 
-function Promo() {
+/* A spanner. Inline rather than an emoji so it matches the button's text
+ * colour and looks the same on every platform. */
+function WrenchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14.7 6.3a4 4 0 0 0 5 5l-9.4 9.4a2.1 2.1 0 0 1-3-3l9.4-9.4Z" />
+      <path d="M19.7 11.3 22 9a5.5 5.5 0 0 0-7-7l2.3 2.3a2 2 0 0 1 0 2.8l-1.2 1.2a2 2 0 0 0 0 2.8Z" />
+    </svg>
+  )
+}
+
+function Promo({ signedIn = false }) {
   return (
     <div className="promo card lift">
       <h2>Start our new credit card with 10% APR!</h2>
       <div className="promo-inner card">
         <p>Start a new account at Simple Bank!</p>
         <p>Representative APR 10%. Credit is subject to status.</p>
-        <Link className="apply lift" to="/register">Apply now</Link>
+        {/* Signed in, this opens the credit account the offer is about.
+            Signed out, it has to make you an account first. */}
+        <Link className="apply lift" to={signedIn ? '/accounts/new?type=CREDIT' : '/register'}>
+          Apply now
+        </Link>
       </div>
     </div>
   )
@@ -37,8 +55,8 @@ function AccountBars({ accounts }) {
       {accounts.map((account) => (
         <li key={account.accountId}>
           <Link to={`/accounts/${account.accountId}`}
-                className={`bar lift bar-${account.accountId % 6}`}>
-            <span className="bar-type">{account.accountType}</span>
+                className={`bar lift bar-${accountTone(account)}`}>
+            <span className="bar-type">{accountLabel(account)}</span>
             {account.status === 'FROZEN' && <span className="badge">FROZEN</span>}
             {/* Divide by 100 to display, never to calculate. */}
             <span className="bar-balance">{formatCents(account.balance)}</span>
@@ -76,32 +94,35 @@ function Dashboard() {
           admin cannot open the account it is offering. */}
       {!isAdmin && (
         <div className="hero hero-solo">
-          <Promo />
+          <Promo signedIn />
         </div>
       )}
 
-      {/* An admin holds no accounts by design, so the customer empty state -
-          "you do not have a bank account yet" - would read as something missing
-          rather than something deliberate. */}
+      {/* An admin holds no accounts by design, so everything the customer
+          dashboard offers is about something they do not have. One way in,
+          and the record of what staff have done underneath it. */}
       {isAdmin ? (
-        <div className="card">
-          <p>
-            Staff account. Admins do not hold accounts here: the role is to freeze
-            accounts, correct balances, and read the record of both.
-          </p>
-        </div>
-      ) : accounts.length > 0 ? (
-        <AccountBars accounts={accounts} />
+        <>
+          <Link className="admin-cta lift" to="/admin">
+            <WrenchIcon />
+            Admin tools
+          </Link>
+          <h2 className="audit-heading">Recent activity</h2>
+          <AdminAuditLog />
+        </>
       ) : (
-        <div className="card"><p>You do not have a bank account yet.</p></div>
-      )}
+        <>
+          {accounts.length > 0
+            ? <AccountBars accounts={accounts} />
+            : <div className="card"><p>You do not have a bank account yet.</p></div>}
 
-      <div className="actions">
-        {!isAdmin && <Link className="action lift" to="/accounts/new">Open an account</Link>}
-        {accounts.length > 0 && <Link className="action lift" to="/transfer">Transfer money</Link>}
-        <Link className="action lift" to="/profile">My details</Link>
-        {isAdmin && <Link className="action lift" to="/admin">Admin tools</Link>}
-      </div>
+          <div className="actions">
+            <Link className="action lift" to="/accounts/new">Open an account</Link>
+            {accounts.length > 0 && <Link className="action lift" to="/transfer">Transfer money</Link>}
+            <Link className="action lift" to="/profile">My details</Link>
+          </div>
+        </>
+      )}
 
       {/* Not on a staff dashboard: it is a public-facing panel, and its navy
           button sits badly on the red admin theme. */}

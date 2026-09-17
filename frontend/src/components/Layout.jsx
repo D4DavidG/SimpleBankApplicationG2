@@ -11,6 +11,7 @@ export default function Layout() {
    * or you are standing on a staff page. `.theme-admin` redefines --navy, and
    * the bar is painted with --navy, so nothing below has to know about this. */
   const adminContext = isAdmin || location.pathname.startsWith('/admin')
+  const hasAccounts = accounts.length > 0
 
   function handleLogout() {
     logout()
@@ -25,17 +26,27 @@ export default function Layout() {
         <div className="nav-inner">
         <Link to="/" className="nav-brand">Simple Bank</Link>
 
+        {/* Home always. Then the money pages, but only once there is an
+            account behind them - offering Deposit to somebody with nothing to
+            deposit into is a link to a dead end. With no account there is
+            exactly one thing to do, so that is the only thing offered.
+
+            An admin holds no accounts and makes no transfers. The backend
+            refuses both regardless; this is just not offering what it would
+            refuse. */}
         <nav className="nav-links">
           <NavLink to="/" end>Home</NavLink>
-          {/* Only worth a tab once there is something behind it. A visitor and a
-              new customer both see "Open account" instead. */}
-          {/* An admin holds no accounts and makes no transfers, so neither of
-              these has anything behind it for them. The backend refuses both
-              regardless; this is just not offering what it would refuse. */}
-          {!isAdmin && (accounts.length > 0
-            ? <NavLink to="/accounts">Accounts ({accounts.length})</NavLink>
-            : <NavLink to="/accounts/new">Open account</NavLink>)}
-          {user && !isAdmin && <NavLink to="/transfer">Transfer</NavLink>}
+          {!isAdmin && (hasAccounts ? (
+            <>
+              <NavLink to="/accounts">Accounts</NavLink>
+              <NavLink to="/deposit">Deposit</NavLink>
+              <NavLink to="/withdraw">Withdraw</NavLink>
+              <NavLink to="/history">History</NavLink>
+              <NavLink to="/transfer">Transfer</NavLink>
+            </>
+          ) : (
+            user && <NavLink to="/accounts/new">Open an account</NavLink>
+          ))}
           {isAdmin && <NavLink to="/admin">Admin</NavLink>}
         </nav>
 

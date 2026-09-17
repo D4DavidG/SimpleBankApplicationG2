@@ -1,19 +1,30 @@
-/* Brief 7.4. One amount input, one submit button.
+/* Brief 7.4. Pick an account, put money in.
  *
- * TODO
- *   - parseDollars(input) -> cents; refuse null before sending
- *   - api.deposit(accountId, cents, crypto.randomUUID())
- *   - show the returned account.balance - do not add the amount to the number
- *     you were already holding, that is the frontend doing money arithmetic
- */
-import { useParams } from 'react-router-dom'
-import Stub from '../components/Stub'
+ * The form itself is TransactionMenu pinned to one action, so deposit, withdraw
+ * and transfer keep sharing the amount parsing, the idempotency id and the
+ * "render the balance the server returned" rule rather than each re-deriving
+ * them. This page only answers "which account". */
+import { useState } from 'react'
+import { useAuth } from '../context/auth-context'
+import AccountPicker from '../components/AccountPicker'
+import TransactionMenu from './TransactionMenu'
+import NoAccountsYet from '../components/NoAccountsYet'
 
 export default function Deposit() {
-  const { accountId } = useParams()
+  const { accounts, refreshAccounts } = useAuth()
+  const [id, setId] = useState(accounts[0]?.accountId ?? '')
+  const account = accounts.find((a) => a.accountId === Number(id))
+
+  if (accounts.length === 0) return <NoAccountsYet action="deposit into" />
+
   return (
-    <Stub title={`Deposit into #${accountId}`}>
-      <p><code>api.deposit(accountId, amountInCents, clientTxnId)</code></p>
-    </Stub>
+    <div className="card profile">
+      <h1>Deposit</h1>
+      <AccountPicker accounts={accounts} value={id} onChange={setId} label="Deposit into" />
+      {/* The nav and the home page read the account list, so a balance that
+          just moved has to be refetched or both keep showing the old one. */}
+      <TransactionMenu account={account} fixedKind="DEPOSIT"
+                       onAccountChange={() => refreshAccounts()} />
+    </div>
   )
 }
