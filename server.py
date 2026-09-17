@@ -21,7 +21,6 @@ from bank import BankService, BankStore, serve
 from bank import seed as seed_module
 from bank.config import load_env
 from bank.errors import StorageUnavailable
-from bank.security import new_secret
 
 # The team's shared demo database. --reset refuses to wipe it without --force.
 SHARED_DB = "simple_bank"
@@ -132,17 +131,14 @@ def main(argv=None) -> int:
         load_demo_data(service)
 
     print()
-    # Without BANK_SECRET, a random per-process secret is used, so no secret is ever
-    # committed and tokens simply stop working when the server restarts. With a
-    # database that is more surprising, because the users are still there.
-    secret = new_secret()
-    if os.environ.get("BANK_SECRET"):
-        print("  signing secret: taken from BANK_SECRET")
+    # Sessions are rows in the `tokens` collection, so with MongoDB a token keeps
+    # working across a restart - the row is still there. In memory the tokens go
+    # with everything else, which is worth saying before somebody wonders why a
+    # saved Postman token stopped working.
+    if use_mongo:
+        print("  sessions:       stored in the database (tokens survive a restart)")
     else:
-        print("  signing secret: random for this process "
-              "(tokens stop working when you restart)")
-        if use_mongo:
-            print("  tip: set BANK_SECRET in .env so logins survive a restart too")
+        print("  sessions:       in memory (tokens stop working when you restart)")
     admin_code = os.environ.get("BANK_ADMIN_CODE", "").strip()
     if admin_code:
         print("  admin code:     set, so POST /api/auth/register accepts adminCode")
@@ -151,8 +147,7 @@ def main(argv=None) -> int:
         print("  tip: set BANK_ADMIN_CODE in .env to open admin registration")
     print()
 
-    serve(service, host=args.host, port=args.port, secret=secret,
-          admin_code=admin_code)
+    serve(service, host=args.host, port=args.port, admin_code=admin_code)
     return 0
 
 

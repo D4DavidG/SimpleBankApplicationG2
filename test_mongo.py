@@ -39,7 +39,7 @@ if ENABLED:
         InsufficientFunds,
     )
     from bank.mongo_store import MongoStore
-    from bank.security import hash_password, issue_token
+    from bank.security import hash_password, new_token
 
     HASH = hash_password("Password123!", rounds=1_000)
 
@@ -173,9 +173,25 @@ class MongoStoreTest(unittest.TestCase):
 
     # ---- through the API ----
 
+    def test_a_session_is_a_row_the_other_connection_can_read(self):
+        """The whole point of storing tokens: a second process, with its own
+        connection, authenticates the session the first one issued."""
+        issued = self.svc.issue_token(self.alice)
+        stored = self.other.find_token(issued.token)
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.user_id, self.alice.user_id)
+        self.assertFalse(stored.is_expired())
+        # And the user comes back through a service built on the other store.
+        self.assertEqual(
+            BankService(self.other).validate_token(issued.token).user_id,
+            self.alice.user_id)
+
+    def test_an_unissued_token_is_not_a_session(self):
+        self.assertIsNone(self.store.find_token(new_token()))
+
     def test_a_deposit_over_the_api_is_saved(self):
-        api = BankAPI(self.svc, secret="mongo-test-secret")
-        token = issue_token(self.alice.user_id, self.alice.role, "mongo-test-secret")
+        api = BankAPI(self.svc)
+        token = self.svc.issue_token(self.alice).token
         status, body = api.handle(
             "POST", f"/api/accounts/{self.a1.account_id}/deposit",
             json.dumps({"amount": 100}).encode(), {"authorization": f"Bearer {token}"})

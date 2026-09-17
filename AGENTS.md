@@ -24,9 +24,9 @@ feature nobody on the team can walk a room through is worse than no feature.
 
 | Layer | State |
 | --- | --- |
-| Domain, services, repository | Done. 125 tests, 14 skip without a Mongo cluster. |
+| Domain, services, repository | Done. 132 tests, 16 skip without a Mongo cluster. |
 | REST API | Done. 18 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
-| Auth | Done. Register, login, `/api/auth/me`, signed tokens, ADMIN role. |
+| Auth | Done. Register, login, `/api/auth/me`, stored tokens, ADMIN role. |
 | Database | Done for MongoDB Atlas. In-memory fallback. **MySQL not started.** |
 | Frontend | Routing, auth, API layer, a public landing page, and 6 real pages (home, accounts, login, register, profile). 7 stubs left. |
 
@@ -116,6 +116,15 @@ creates an ADMIN; a wrong one is a 403 that creates nobody, which is what the
 frontend — grep the bundle and you will not find it — because a comparison
 written in JavaScript ships to the browser and stops nobody. See `api._role_for`.
 
+**A session token is a row, not a signature.** Login and register call
+`service.issue_token(user)`, which writes `{token, user_id, expires_at}` to the
+`tokens` table and hands the token back. Every protected route calls
+`service.validate_token(token)`, which looks it up, refuses an expired one, and
+returns the `User`. Do not build a token any other way in a test — one that
+skipped `issue_token` has no row, so it is nobody's. `BANK_SECRET` is gone:
+tokens are not signed and there is nothing left to sign them with. One user may
+hold several tokens, so `user_id` is not unique there.
+
 **All backend code is standard library only.** `requirements.txt` exists for
 pymongo and nothing else. Keep it that way.
 
@@ -128,5 +137,5 @@ pymongo and nothing else. Keep it that way.
 | `bank/` | The backend. `api.py` has the route table; `services.py` has the rules. |
 | `APIDocs.txt` | The API contract. The frontend's source of truth. |
 | `frontend/` | React + Vite. See its README and PLAN. |
-| `test_*.py` | 125 tests. `python -m unittest -q`. |
+| `test_*.py` | 132 tests. `python -m unittest -q`. |
 | `tools/check_mongo.py` | Run when Atlas will not connect. It explains what failed. |
