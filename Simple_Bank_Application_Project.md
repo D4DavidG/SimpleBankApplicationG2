@@ -23,7 +23,7 @@ This project helps students understand:
 
 - **Backend:** Node / Spring Boot (Java) / Python
 - **Frontend:** React with basic HTML, CSS, JavaScript
-- **Database:** MongoDB
+- **Database:** MySQL (To be confirmed)
 - **Tools:** VS Code, Postman, Swagger
 
 ## 3. High-Level Architecture
