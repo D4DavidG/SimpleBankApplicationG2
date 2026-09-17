@@ -28,7 +28,7 @@ feature nobody on the team can walk a room through is worse than no feature.
 | REST API | Done. 18 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
 | Auth | Done. Register, login, `/api/auth/me`, signed tokens, ADMIN role. |
 | Database | Done for MongoDB Atlas. In-memory fallback. **MySQL not started.** |
-| Frontend | Routing, auth, API layer, and 7 real pages (home, accounts, login, register, profile, admin sign-in, admin register). 7 stubs left. |
+| Frontend | Routing, auth, API layer, a public landing page, and 6 real pages (home, accounts, login, register, profile). 7 stubs left. |
 
 Run it: `python server.py` in one terminal, `cd frontend && npm run dev` in
 another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.

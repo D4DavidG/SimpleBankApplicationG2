@@ -43,9 +43,10 @@ export function AuthProvider({ children }) {
       .finally(() => setLoading(false))
   }, [refreshAccounts])
 
-  async function login(email, password) {
+  // `remember` decides whether the token outlives the browser session.
+  async function login(email, password, remember = false) {
     const data = await api.login(email, password)
-    api.setToken(data.token)
+    api.setToken(data.token, remember)
     setUser(data.user)
     await refreshAccounts()
     return data.user
@@ -55,7 +56,8 @@ export function AuthProvider({ children }) {
   // decides the role; whatever comes back in data.user.role is the real answer.
   async function register(name, email, password, adminCode) {
     const data = await api.register(name, email, password, adminCode)
-    api.setToken(data.token) // register logs you straight in
+    // Registering is a deliberate act on your own machine, so it remembers you.
+    api.setToken(data.token, true) // register logs you straight in
     setUser(data.user)
     setAccounts([]) // a brand new user has none yet
     return data.user

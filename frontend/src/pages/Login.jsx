@@ -1,51 +1,15 @@
-import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../context/auth-context'
-import SecretInput from '../components/SecretInput'
+import LoginForm from '../components/LoginForm'
 
 export default function Login() {
-  const { login } = useAuth()
   const navigate = useNavigate()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(false)
-
-  async function handleSubmit(event) {
-    event.preventDefault()
-    setError(null)
-    setBusy(true)
-    try {
-      await login(email, password)
-      navigate('/')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <div className="card narrow">
-      <h1>Log in</h1>
-      <form onSubmit={handleSubmit}>
-        <label>
-          Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        </label>
-        <SecretInput
-          label="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        {error && <p className="error">{error}</p>}
-        <button type="submit" disabled={busy}>{busy ? 'Logging in...' : 'Log in'}</button>
-      </form>
-      <p>No account yet? <Link to="/register">Register</Link></p>
-      {/* TEMPORARY test hook. The transaction menu will live on the logged-in
-        * dashboard; until that page exists, this is how you reach it. Delete
-        * this and the public /transactions route in App.jsx together. */}
+      <h1>Sign in</h1>
+      <LoginForm onDone={() => navigate('/')} />
+      {/* TEMPORARY test hook, not mine - kept because the public /transactions
+        * route it points at is still there, and the two are meant to be deleted
+        * together once a real caller for TransactionMenu exists. */}
       <p><Link to="/transactions">Transaction menu (test)</Link></p>
       <p className="hint">
         Seed login: <code>aaron.forrester@example.com</code>, password

@@ -52,12 +52,12 @@ export default function Register() {
     setError(null)
     setBusy(true)
     try {
-      const user = await register(
+      await register(
         form.name, form.email, form.password,
         withCode ? form.teamCode : undefined,
       )
-      // An admin has no bank account to open, so send them to the admin tools.
-      navigate(user.role === 'ADMIN' ? '/admin' : '/accounts/new')
+      // Everybody lands on the home page; it shows them what to do next.
+      navigate('/')
     } catch (err) {
       // 403 on this endpoint means one thing: the code did not match. Anything
       // else - a taken email is a 409 - is a real error and shown as one.

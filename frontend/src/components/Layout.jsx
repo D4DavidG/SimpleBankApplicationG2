@@ -14,25 +14,25 @@ export default function Layout() {
 
   function handleLogout() {
     logout()
-    navigate('/login')
+    navigate('/')
   }
 
   return (
     <div className="app">
       <header className={adminContext ? 'nav theme-admin' : 'nav'}>
         <Link to="/" className="nav-brand">Simple Bank</Link>
-        {user && (
-          <nav className="nav-links">
-            <NavLink to="/">Home</NavLink>
-            {/* Only worth a tab once there is something behind it. A new user
-                sees "Open account" until they have one. */}
-            {accounts.length > 0
-              ? <NavLink to="/accounts">Accounts ({accounts.length})</NavLink>
-              : <NavLink to="/accounts/new">Open account</NavLink>}
-            <NavLink to="/transfer">Transfer</NavLink>
-            {isAdmin && <NavLink to="/admin">Admin</NavLink>}
-          </nav>
-        )}
+
+        <nav className="nav-links">
+          <NavLink to="/" end>Home</NavLink>
+          {/* Only worth a tab once there is something behind it. A visitor and a
+              new customer both see "Open account" instead. */}
+          {accounts.length > 0
+            ? <NavLink to="/accounts">Accounts ({accounts.length})</NavLink>
+            : <NavLink to="/accounts/new">Open account</NavLink>}
+          {user && <NavLink to="/transfer">Transfer</NavLink>}
+          {isAdmin && <NavLink to="/admin">Admin</NavLink>}
+        </nav>
+
         <div className="nav-user">
           {user ? (
             <>
@@ -44,7 +44,10 @@ export default function Layout() {
               <button onClick={handleLogout}>Log out</button>
             </>
           ) : (
-            <NavLink to="/login">Log in</NavLink>
+            <>
+              <NavLink to="/register">Register</NavLink>
+              <NavLink to="/login">Sign in</NavLink>
+            </>
           )}
         </div>
       </header>

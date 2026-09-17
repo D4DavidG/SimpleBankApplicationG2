@@ -50,8 +50,12 @@ export default function App() {
               * route and DEMO_ACCOUNT once that caller exists. */}
             <Route path="/transactions" element={<TransactionMenu account={DEMO_ACCOUNT} />} />
 
+            {/* The home page is public: a landing page with the sign-in form
+                for a visitor, the account summary once you are signed in. Every
+                other route below still needs a token. */}
+            <Route path="/" element={<Home />} />
+
             {/* customer */}
-            <Route path="/" element={auth(<Home />)} />
             <Route path="/profile" element={auth(<Profile />)} />
             <Route path="/accounts" element={auth(<Accounts />)} />
             <Route path="/accounts/new" element={auth(<OpenAccount />)} />

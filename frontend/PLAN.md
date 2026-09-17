@@ -23,7 +23,7 @@ comment that names the API call it needs and the rules that apply.
 
 | # | Route | File | Brief | Owner | Done |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `/` | `Home.jsx` | 7.1 | David | ✅ |
+| 1 | `/` | `Home.jsx` | 7.1 | David | ✅ public landing + dashboard |
 | 2 | `/accounts` | `Accounts.jsx` | 7.1 | David | ✅ |
 | 3 | `/login` | `Login.jsx` | bonus | David | ✅ |
 | 4 | `/register` | `Register.jsx` | 7.2 | David | ✅ |
@@ -120,6 +120,28 @@ WCAG 3.3.4 asks that a transaction involving money be reversible, checked, or
 confirmed. Ours is not reversible, so it gets confirmed. It is two states in one
 component, not a second page, and it prevents the likeliest user error in the
 app. Worth the twenty lines.
+
+## 5b. The home page
+
+`/` is the only public route, and it is two pages in one `if`: a landing page
+with the sign-in form for a visitor, the account summary once you are signed in.
+Everything else still sits behind `RequireAuth`.
+
+Signing in, registering and logging out all land here.
+
+Pieces worth knowing about, because they are shared:
+
+- `components/LoginForm.jsx` — the sign-in form. Used by the landing page *and*
+  `/login`; two copies would drift apart.
+- `components/AboutUs.jsx` — the team panel. Opening it animates because a grid
+  row goes `0fr` → `1fr`, which is the one way to transition to a height nobody
+  has measured; `height: auto` does not animate.
+- `.lift` — the hover used by every pickable card and button: 5% bigger and a
+  deeper shadow. One class, so the effect stays the same everywhere, and it
+  drops the scaling under `prefers-reduced-motion`.
+- **"Remember me" really does something.** Ticked, the token goes in
+  `localStorage` and survives closing the browser; unticked, `sessionStorage`
+  and it does not. The token still expires after an hour either way.
 
 ## 6. Theme
 
