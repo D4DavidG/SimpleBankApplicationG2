@@ -45,6 +45,10 @@ export default function Login() {
         <button type="submit" disabled={busy}>{busy ? 'Logging in...' : 'Log in'}</button>
       </form>
       <p>No account yet? <Link to="/register">Register</Link></p>
+      {/* TEMPORARY test hook. The transaction menu will live on the logged-in
+        * dashboard; until that page exists, this is how you reach it. Delete
+        * this and the public /transactions route in App.jsx together. */}
+      <p><Link to="/transactions">Transaction menu (test)</Link></p>
       <p className="hint">
         Seed login: <code>aaron.forrester@example.com</code> — the password is printed
         by <code>python server.py</code> when it loads the demo data.

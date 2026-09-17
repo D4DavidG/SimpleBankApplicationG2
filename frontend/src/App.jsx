@@ -13,6 +13,7 @@ import AccountDetails from './pages/AccountDetails'
 import Deposit from './pages/Deposit'
 import Withdraw from './pages/Withdraw'
 import Transactions from './pages/Transactions'
+import TransactionMenu from './pages/TransactionMenu'
 import Transfer from './pages/Transfer'
 import Admin from './pages/Admin'
 import NotFound from './pages/NotFound'
@@ -20,6 +21,16 @@ import NotFound from './pages/NotFound'
 // Wrapping each protected element rather than nesting a guard route keeps the
 // list flat and lets you see at a glance which pages need a token.
 const auth = (element) => <RequireAuth>{element}</RequireAuth>
+
+// TEMPORARY: stand-in for the account the real caller will pass to
+// TransactionMenu. Same shape as an item from api.listAccounts(), balance in
+// cents. Delete with the /transactions route below.
+const DEMO_ACCOUNT = {
+  accountId: 1,
+  accountType: 'CHECKING',
+  balance: 125000,
+  status: 'ACTIVE',
+}
 
 export default function App() {
   return (
@@ -30,6 +41,12 @@ export default function App() {
             {/* public */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+
+            {/* TEMPORARY: public, with a made-up account, so the test link on
+              * /login can reach it. TransactionMenu takes its account as a
+              * prop; the real caller will pass one it fetched. Delete this
+              * route and DEMO_ACCOUNT once that caller exists. */}
+            <Route path="/transactions" element={<TransactionMenu account={DEMO_ACCOUNT} />} />
 
             {/* customer */}
             <Route path="/" element={auth(<Home />)} />
