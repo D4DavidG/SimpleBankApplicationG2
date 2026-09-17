@@ -48,8 +48,7 @@ def _collided_on(exc: DuplicateKeyError, field: str) -> bool:
 
     pymongo reports the offending index in `keyPattern`, so a collision on
     `email` and a collision on `_id` are distinguishable - and they mean
-    completely different things. Falls back to the message text, which is all
-    older servers supply.
+    completely different things.
     """
     pattern = (exc.details or {}).get("keyPattern")
     if isinstance(pattern, dict):
