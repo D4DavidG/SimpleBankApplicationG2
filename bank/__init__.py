@@ -11,12 +11,12 @@ aspirational:
     api.py          Controller. HTTP in, JSON out. No business rules.
     serializers.py  Domain objects -> JSON dicts. Money goes out as integer cents.
     services.py     Every business rule. No HTTP, no SQL, no framework.
-    models.py       User, Account, Transaction as plain classes.
+    models.py       User, Account, Transaction, AuthToken as plain classes.
     store.py        In-memory repository. Used by the tests and the demo.
     mongo_store.py  MongoDB repository, same method names. Used by the server.
     config.py       Reads .env into the environment.
     money.py        Cents as ints, and amount validation. Read this first.
-    security.py     Password hashing and signed session tokens.
+    security.py     Password hashing and session token generation.
     errors.py       Domain exceptions. Not HTTP status codes.
     seed.py         The demo roster, replayed through the real service methods.
 
@@ -42,11 +42,11 @@ from .errors import (
 )
 from .models import (
     ACTIVE, DEPOSIT, FROZEN, ROLE_ADMIN, ROLE_CUSTOMER, TRANSFER_IN,
-    TRANSFER_OUT, WITHDRAWAL, Account, CheckingAccount, SavingsAccount,
+    TRANSFER_OUT, WITHDRAWAL, Account, AuthToken, CheckingAccount, SavingsAccount,
     Transaction, User, make_account,
 )
 from .money import format_money, parse_amount, to_cents
-from .security import hash_password, issue_token, read_token, verify_password
+from .security import hash_password, new_token, verify_password
 from .serializers import account_json, transaction_json, user_json
 from .services import BankService
 from .store import BankStore
@@ -58,11 +58,11 @@ __all__ = [
     "BankAPI", "serve",
     # domain types
     "User", "Account", "CheckingAccount", "SavingsAccount", "Transaction",
-    "make_account",
+    "AuthToken", "make_account",
     # money
     "to_cents", "parse_amount", "format_money",
     # security
-    "hash_password", "verify_password", "issue_token", "read_token",
+    "hash_password", "verify_password", "new_token",
     # serialization
     "user_json", "account_json", "transaction_json",
     # errors

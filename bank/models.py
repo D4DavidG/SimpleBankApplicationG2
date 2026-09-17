@@ -94,6 +94,37 @@ class User:
 
 
 @dataclass(frozen=True)
+class AuthToken:
+    """One session. The row in the `tokens` table, as an object.
+
+    `token` is the primary key: it is the random string the client sends back on
+    every request, and it is what the table is looked up by. `user_id` is NOT
+    unique here, on purpose - one person signed in on a phone and a laptop holds
+    two tokens, and logging out of one must not log them out of the other.
+
+    `expires_at` is an absolute moment rather than a duration, so the answer to
+    "is this still good" does not depend on knowing when it was issued. It is
+    stored, not signed into the token, which means the expiry can be inspected
+    and a session can be cut short by deleting its row.
+
+    `frozen=True` for the same reason as `Transaction`: nothing about an issued
+    session is ever edited. A new session is a new row.
+    """
+
+    token: str
+    user_id: int
+    expires_at: datetime
+
+    def is_expired(self, now: datetime | None = None) -> bool:
+        return (now or _now()) >= self.expires_at
+
+    def __str__(self) -> str:
+        # Never the whole token. A session id in a log file is a session id an
+        # attacker can replay, and logs get pasted into chat windows.
+        return f"token {self.token[:6]}... user {self.user_id} until {self.expires_at:%Y-%m-%d %H:%M}"
+
+
+@dataclass(frozen=True)
 class Transaction:
     """One immutable ledger entry.
 

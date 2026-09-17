@@ -356,11 +356,19 @@ Conventions
 
             Authorization: Bearer <token>
 
-        It is signed and carries the user id and role. It expires one hour
-        after it is issued, and the expiry comes back as expiresIn alongside
-        the token at register and login. The role is re-read from storage on
-        every request rather than trusted from the token, so an admin demoted
-        five minutes ago is not still an admin for the rest of the hour.
+        The token is a long random string and nothing else - there is no user
+        id or role inside it to read or to edit. The server keeps a row for
+        each issued token holding the user it belongs to and when it expires,
+        and looks that row up on every authenticated call. A token that was
+        never issued, or whose expiry has passed, is a 401.
+
+        A token lasts one week. The expiry comes back as expiresIn (seconds)
+        alongside the token at register and login. The user's role is re-read
+        from storage on every request, so an admin demoted five minutes ago is
+        not still an admin for the rest of the week.
+
+        One user may hold several tokens at once - a phone and a laptop are
+        two sessions, and logging in on one does not end the other.
 
     MONEY IS AN INTEGER NUMBER OF CENTS
         Every monetary field, in and out, is a whole number of cents sent as a

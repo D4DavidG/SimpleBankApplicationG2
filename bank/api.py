@@ -33,7 +33,7 @@ it would add a dependency to a submission that currently installs nothing.
 `python server.py` and no virtualenv. The four things a controller does, listed
 above, are the same in any framework; what changes is the routing syntax. When
 the stack is settled, porting this file to FastAPI is mechanical - the route
-table below becomes decorators, `_require_actor` becomes a dependency, and
+table below becomes decorators, `_authenticate` becomes a dependency, and
 `ERROR_STATUS` becomes an exception handler. Nothing outside this file moves.
 
 The honest limitation: `http.server` is explicitly not for production use. For a
@@ -49,6 +49,7 @@ one table, in one file, instead of a `try`/`except` in each of sixteen handlers.
 """
 import json
 import re
+from datetime import datetime, timezone
 from hmac import compare_digest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -59,7 +60,6 @@ from .errors import (
     EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized,
     StorageUnavailable, UserNotFound,
 )
-from .security import TOKEN_TTL_SECONDS, issue_token, new_secret, read_token
 from .serializers import account_json, page_json, transaction_json, user_json
 
 # ---------------------------------------------------------------------------
@@ -195,10 +195,8 @@ class BankAPI:
     `http.server` for FastAPI a change to the bottom of this file only.
     """
 
-    def __init__(self, service, secret: str | None = None,
-                 admin_code: str | None = None):
+    def __init__(self, service, admin_code: str | None = None):
         self.service = service
-        self.secret = secret or new_secret()
         # The shared code that lets somebody register as an admin. None means the
         # door is shut and `adminCode` is refused whatever it contains, which is
         # the right default: a deployment that never sets it cannot grow admins
@@ -312,18 +310,16 @@ class BankAPI:
         if not raw.lower().startswith("bearer "):
             raise ApiError(401, "missing bearer token")
 
-        payload = read_token(raw[7:].strip(), self.secret)
-        if payload is None:
-            # Malformed, forged, or expired - all one message. See read_token.
-            raise ApiError(401, "invalid or expired token")
-
         try:
-            # Load the user from the store rather than trusting the token's copy
-            # of the role. The token is signed, so it has not been tampered with,
-            # but it was issued up to an hour ago: if an admin has been demoted
-            # since, the stored record is right and the token is stale.
-            actor = self.service.store.get_user(payload["sub"])
-        except UserNotFound:
+            # One service call, as every other handler makes. The token is looked
+            # up in the tokens table, its expiry is checked, and the user is read
+            # from storage - so a role changed since the session started takes
+            # effect on this request, rather than whenever the session expires.
+            actor = self.service.validate_token(raw[7:].strip())
+        except NotAuthorized:
+            # 401, not the 403 that ERROR_STATUS gives NotAuthorized elsewhere.
+            # "Your token is no good" means try authenticating again; the 403
+            # below means authenticating again will not help.
             raise ApiError(401, "invalid or expired token") from None
 
         if route.admin and not actor.is_admin:
@@ -416,11 +412,7 @@ class BankAPI:
             password=request.require("password"),
             role=self._role_for(request.optional("adminCode")),
         )
-        return 201, {
-            "user": user_json(user),
-            "token": issue_token(user.user_id, user.role, self.secret),
-            "expiresIn": TOKEN_TTL_SECONDS,
-        }
+        return 201, {"user": user_json(user), **self._session_for(user)}
 
     def login(self, request: Request) -> tuple[int, dict]:
         """Exchange email and password for a token.
@@ -435,11 +427,19 @@ class BankAPI:
                                              request.require("password"))
         except NotAuthorized:
             raise ApiError(401, "invalid email or password") from None
-        return 200, {
-            "user": user_json(user),
-            "token": issue_token(user.user_id, user.role, self.secret),
-            "expiresIn": TOKEN_TTL_SECONDS,
-        }
+        return 200, {"user": user_json(user), **self._session_for(user)}
+
+    def _session_for(self, user) -> dict:
+        """The `token` and `expiresIn` pair that register and login both return.
+
+        `expiresIn` is seconds remaining rather than the stored absolute moment:
+        the client's clock may be wrong, and a countdown does not care. It is
+        computed from the row the service just wrote, so the number the client
+        holds is the one the database will enforce.
+        """
+        session = self.service.issue_token(user)
+        remaining = session.expires_at - datetime.now(timezone.utc)
+        return {"token": session.token, "expiresIn": int(remaining.total_seconds())}
 
     def _role_for(self, submitted_code) -> str:
         """CUSTOMER, or ADMIN if the request carried the right code.
@@ -777,7 +777,7 @@ def make_handler_class(api: BankAPI, cors: bool = True, quiet: bool = False):
 
 
 def serve(service, host: str = "127.0.0.1", port: int = 8000,
-          secret: str | None = None, admin_code: str | None = None) -> None:
+          admin_code: str | None = None) -> None:
     """Start the API. Blocks until Ctrl+C.
 
     ThreadingHTTPServer, not HTTPServer: the single-threaded version handles one
@@ -785,7 +785,7 @@ def serve(service, host: str = "127.0.0.1", port: int = 8000,
     `BankService` exists to solve. Serving requests in parallel means the demo
     runs on the same execution model the rules were written for.
     """
-    api = BankAPI(service, secret, admin_code)
+    api = BankAPI(service, admin_code)
     httpd = ThreadingHTTPServer((host, port), make_handler_class(api))
     print(f"  Simple Bank API listening on http://{host}:{port}")
     print(f"  {len(api.routes)} routes. Try: GET http://{host}:{port}/api/health")
