@@ -126,8 +126,16 @@ class BankService:
         # is not a search, it is a listing with extra steps.
         if len(query) < 2:
             return []
-        found = self.store.search_users(query, limit + 1)
-        return [u for u in found if u.user_id != actor.user_id][:limit]
+        # Over-fetch, because two kinds of row get dropped below and a search
+        # that returned eight of ten matches would look like a broken search.
+        # The client still never sees more than `limit`.
+        found = self.store.search_users(query, limit * 2 + 1)
+        return [u for u in found
+                # An admin holds no account (see open_account), so
+                # primary_account_for would refuse them. Offering one as a payee
+                # is a dead end that ends in "that person has no account that
+                # can receive money" after the sender has chosen them.
+                if u.user_id != actor.user_id and not u.is_admin][:limit]
 
     def primary_account_for(self, user_id: int) -> Account:
         """The account a transfer lands in when the sender picked a person.

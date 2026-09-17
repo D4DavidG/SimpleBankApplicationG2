@@ -517,6 +517,23 @@ class TestUserSearch(ApiTestCase):
         self.assertNotIn("password_hash", body["users"][0])
         self.assertNotIn("passwordHash", body["users"][0])
 
+    def test_an_admin_is_never_offered_as_a_payee(self):
+        """An admin holds no account, so primary_account_for would refuse them.
+        Listing one is a dead end the sender only discovers after choosing."""
+        _, body = self.search("david")
+        self.assertEqual(body["users"], [])
+
+    def test_a_transfer_aimed_at_an_admin_is_refused(self):
+        """The search hides them; this is the door being shut as well, since a
+        userId can be typed by hand."""
+        status, body = self.post("/api/transfers", {
+            "fromAccountId": self.a_checking.account_id,
+            "toUserId": self.david.user_id,
+            "amount": 1000,
+        }, self.aaron)
+        self.assertEqual(status, 404)
+        self.assertIn("no account", body["error"])
+
 
 class TestTransferToAPerson(ApiTestCase):
     """POST /api/transfers with toUserId instead of toAccountId."""
