@@ -29,6 +29,7 @@ export default function Register() {
   }
 
   return (
+    <>
     <div className="card narrow">
       <h1>Register</h1>
       <form onSubmit={handleSubmit}>
@@ -49,5 +50,7 @@ export default function Register() {
       </form>
       <p>Already registered? <Link to="/login">Log in</Link></p>
     </div>
+    <Link className="corner-link" to="/admin/register">Staff registration</Link>
+    </>
   )
 }

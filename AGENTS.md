@@ -24,11 +24,11 @@ feature. Before adding anything, ask whether it earns the lines it costs.
 
 | Layer | State |
 | --- | --- |
-| Domain, services, repository | Done. 109 tests, 14 skip without a Mongo cluster. |
-| REST API | Done. 17 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
+| Domain, services, repository | Done. 125 tests, 14 skip without a Mongo cluster. |
+| REST API | Done. 18 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
 | Auth | Done. Register, login, `/api/auth/me`, signed tokens, ADMIN role. |
 | Database | Done for MongoDB Atlas. In-memory fallback. **MySQL not started.** |
-| Frontend | **Scaffolded only.** Routing, auth, API layer and 3 real pages. 7 stubs. |
+| Frontend | Routing, auth, API layer, and 7 real pages (home, accounts, login, register, profile, admin sign-in, admin register). 7 stubs left. |
 
 Run it: `python server.py` in one terminal, `cd frontend && npm run dev` in
 another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
@@ -100,6 +100,17 @@ come back `balanced: true`.
 `crypto.randomUUID()` per submission attempt, so a double-click cannot move the
 money twice.
 
+**Call `refreshAccounts()` after moving money.** The account list lives in the
+auth context because the nav bar and the home page both read it. A deposit,
+withdrawal or transfer that does not refresh it leaves both showing the old
+balance. `const { refreshAccounts } = useAuth()`.
+
+**Admin role comes from `BANK_ADMIN_CODE`, checked server-side.** Registering
+with a matching `adminCode` creates an ADMIN — see `api._role_for`. The same
+code also appears in `AdminLogin.jsx`, checked in the browser, where it is a
+signpost and not a control: login takes no code, so there is nowhere to send it.
+Never rely on a browser-side check for anything that has to actually hold.
+
 **All backend code is standard library only.** `requirements.txt` exists for
 pymongo and nothing else. Keep it that way.
 
@@ -112,5 +123,5 @@ pymongo and nothing else. Keep it that way.
 | `bank/` | The backend. `api.py` has the route table; `services.py` has the rules. |
 | `APIDocs.txt` | The API contract. The frontend's source of truth. |
 | `frontend/` | React + Vite. See its README and PLAN. |
-| `test_*.py` | 109 tests. `python -m unittest -q`. |
+| `test_*.py` | 125 tests. `python -m unittest -q`. |
 | `tools/check_mongo.py` | Run when Atlas will not connect. It explains what failed. |

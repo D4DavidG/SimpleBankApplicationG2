@@ -19,10 +19,16 @@ python server.py     # http://127.0.0.1:8000
 
 `npm run dev` proxies `/api` to `127.0.0.1:8000` (see `vite.config.js`), so the
 browser sees a single origin and there is nothing to configure. If you run the
-backend on another port, change the proxy target there.
+backend on another port:
 
-Log in with a seeded user: `aaron.forrester@example.com`. `python server.py`
-prints the shared password and the admin logins when it loads the demo data.
+```bash
+VITE_API_TARGET=http://127.0.0.1:9000 npm run dev          # bash
+$env:VITE_API_TARGET = "http://127.0.0.1:9000"; npm run dev  # PowerShell
+```
+
+Log in with a seeded user: `aaron.forrester@example.com`, password
+`BankDemo123!`. The seeded admins are `david.gusmao@example.com` and
+`bianca.alvarado@example.com`, same password.
 
 ---
 
@@ -32,16 +38,38 @@ prints the shared password and the admin logins when it loads the demo data.
 | --- | --- |
 | `src/lib/api.js` | One function per endpoint. Handles the `Authorization` header, JSON encoding and the `{ error }` failure shape. **Do not call `fetch` from a page.** |
 | `src/lib/money.js` | `formatCents`, `parseDollars`, `formatDate`. |
-| `src/context/AuthContext.jsx` | Login, register, logout, and the stored token. |
+| `src/context/AuthContext.jsx` | Login, register, logout, the stored token, the profile edit, and the account list. |
 | `src/context/auth-context.js` | The `useAuth()` hook. |
 | `src/components/RequireAuth.jsx` | Route guard: redirects to `/login`, or away from `/admin` for a non-admin. |
 | `src/components/Layout.jsx` | Nav bar and page frame. |
 | `src/App.jsx` | Every route, in one table. |
 | `src/index.css` | Placeholder styles. Nobody is attached to these. |
 
-Working already: `/login`, `/register`, and `/` (the account list). They are
-plain but real, so the pages you build have live data and real account ids to
-work against.
+Working already: `/` (home), `/accounts`, `/login`, `/register`, `/profile`,
+`/admin/login` and `/admin/register`. They are plain but real, so the pages you
+build have live data and real account ids to work against.
+
+### Staff accounts
+
+The two pages at `/admin/login` and `/admin/register` are reached from the small
+link in the bottom-left corner of the customer login and register pages, and they
+are red rather than navy so the context is obvious.
+
+Both ask for the team code, but the two codes do different amounts of work and
+it is worth knowing which is which.
+
+**On `/admin/register` it is a real check.** The code goes to the server as
+`adminCode` and is compared against `BANK_ADMIN_CODE` from `.env`. Get it wrong
+and you get a 403 and no user at all. If `BANK_ADMIN_CODE` is not set, admin
+registration is closed and any code is refused.
+
+**On `/admin/login` it is a speed bump.** It is checked in the browser, because
+`POST /api/auth/login` takes an email and a password and nothing else — there is
+nowhere to send a code. Anyone can read it out of the bundle, and anyone who
+signs in at `/login` instead gets the same session. That is fine: the code is not
+what protects anything. Your role comes from your account, and the server
+re-checks it on every admin request. Do not add a browser-side check anywhere it
+is meant to actually stop someone.
 
 ## What is waiting to be claimed
 
@@ -81,6 +109,10 @@ to the number you were already holding is wrong the moment a second tab is open.
 `crypto.randomUUID()` per submission attempt. A double-clicked button then sends
 the same id twice and the second one is refused instead of moving the money
 again.
+
+**Call `refreshAccounts()` after moving money.** The account list lives in the
+auth context because the nav bar and the home page both read it. Skip the
+refresh and both keep showing the old balance.
 
 Two more worth knowing: read `availableForWithdrawal`, not `balance`, when
 offering an amount to withdraw — they hold the same number today and will not

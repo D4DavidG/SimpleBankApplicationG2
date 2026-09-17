@@ -7,7 +7,11 @@ import RequireAuth from './components/RequireAuth'
 
 import Login from './pages/Login'
 import Register from './pages/Register'
+import AdminLogin from './pages/AdminLogin'
+import AdminRegister from './pages/AdminRegister'
 import Home from './pages/Home'
+import Accounts from './pages/Accounts'
+import Profile from './pages/Profile'
 import OpenAccount from './pages/OpenAccount'
 import AccountDetails from './pages/AccountDetails'
 import Deposit from './pages/Deposit'
@@ -30,9 +34,16 @@ export default function App() {
             {/* public */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            {/* The staff door. Public, like any login page - what makes somebody
+                an admin is the role on their account, which the server checks on
+                every admin request. Hiding a URL has never stopped anybody. */}
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/register" element={<AdminRegister />} />
 
             {/* customer */}
             <Route path="/" element={auth(<Home />)} />
+            <Route path="/profile" element={auth(<Profile />)} />
+            <Route path="/accounts" element={auth(<Accounts />)} />
             <Route path="/accounts/new" element={auth(<OpenAccount />)} />
             <Route path="/accounts/:accountId" element={auth(<AccountDetails />)} />
             <Route path="/accounts/:accountId/deposit" element={auth(<Deposit />)} />

@@ -143,9 +143,16 @@ def main(argv=None) -> int:
               "(tokens stop working when you restart)")
         if use_mongo:
             print("  tip: set BANK_SECRET in .env so logins survive a restart too")
+    admin_code = os.environ.get("BANK_ADMIN_CODE", "").strip()
+    if admin_code:
+        print("  admin code:     set, so POST /api/auth/register accepts adminCode")
+    else:
+        print("  admin code:     not set, so nobody can register as an admin")
+        print("  tip: set BANK_ADMIN_CODE in .env to open admin registration")
     print()
 
-    serve(service, host=args.host, port=args.port, secret=secret)
+    serve(service, host=args.host, port=args.port, secret=secret,
+          admin_code=admin_code)
     return 0
 
 

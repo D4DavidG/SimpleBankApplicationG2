@@ -307,6 +307,36 @@ class MongoStore:
         cursor = self._users.find({}, session=self._session).sort("_id", ASCENDING)
         return [_user_from(doc) for doc in cursor]
 
+    @_guarded
+    def update_user(self, user_id: int, name: str | None = None,
+                    email: str | None = None) -> User:
+        """Change a user's name, email, or both. See BankStore.update_user for
+        why role and password_hash are not reachable from here."""
+        changes = {}
+        if name is not None:
+            changes["name"] = name.strip()
+        if email is not None:
+            key = email.strip().lower()
+            clash = self._users.find_one({"email": key, "_id": {"$ne": user_id}},
+                                         {"_id": 1}, session=self._session)
+            if clash is not None:
+                raise EmailAlreadyUsed(f"email already registered: {key}")
+            changes["email"] = key
+        if not changes:
+            return self.get_user(user_id)
+        try:
+            doc = self._users.find_one_and_update(
+                {"_id": user_id}, {"$set": changes},
+                return_document=ReturnDocument.AFTER, session=self._session)
+        except DuplicateKeyError:
+            # Two edits raced past the check above. The unique index settles it,
+            # exactly as it does in add_user.
+            raise EmailAlreadyUsed(
+                f"email already registered: {changes['email']}") from None
+        if doc is None:
+            raise UserNotFound(f"no user with id {user_id}")
+        return _user_from(doc)
+
     # ---- accounts ----
 
     @_guarded
