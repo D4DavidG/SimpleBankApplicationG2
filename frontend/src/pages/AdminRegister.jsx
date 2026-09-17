@@ -37,7 +37,7 @@ export default function AdminRegister() {
   }
 
   return (
-    <div className="theme-admin">
+    <div className="theme-admin admin-page">
       <div className="card narrow">
         <h1>Register a staff account</h1>
         <p className="hint">
@@ -67,7 +67,7 @@ export default function AdminRegister() {
         </form>
         <p>Already have one? <Link to="/admin/login">Admin sign-in</Link>.</p>
       </div>
-      <Link className="corner-link" to="/register">← Customer registration</Link>
+      <Link className="corner-link customer" to="/register">← Customer registration</Link>
     </div>
   )
 }

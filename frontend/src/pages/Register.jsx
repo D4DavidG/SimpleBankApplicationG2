@@ -50,7 +50,7 @@ export default function Register() {
       </form>
       <p>Already registered? <Link to="/login">Log in</Link></p>
     </div>
-    <Link className="corner-link" to="/admin/register">Staff registration</Link>
+    <Link className="corner-link staff" to="/admin/register">Staff registration</Link>
     </>
   )
 }

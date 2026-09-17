@@ -1,10 +1,16 @@
 /* The frame every page renders inside: nav bar at the top, page below. */
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/auth-context'
 
 export default function Layout() {
   const { user, accounts, logout, isAdmin } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  /* Red bar whenever anything admin is going on: you are signed in as an admin,
+   * or you are standing on a staff page. `.theme-admin` redefines --navy, and
+   * the bar is painted with --navy, so nothing below has to know about this. */
+  const adminContext = isAdmin || location.pathname.startsWith('/admin')
 
   function handleLogout() {
     logout()
@@ -13,7 +19,7 @@ export default function Layout() {
 
   return (
     <div className="app">
-      <header className="nav">
+      <header className={adminContext ? 'nav theme-admin' : 'nav'}>
         <Link to="/" className="nav-brand">Simple Bank</Link>
         {user && (
           <nav className="nav-links">

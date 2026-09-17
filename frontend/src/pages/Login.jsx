@@ -53,7 +53,7 @@ export default function Login() {
     </div>
     {/* Staff door. Tucked in the corner because almost nobody using this is
         staff, and it should not compete with the form. */}
-    <Link className="corner-link" to="/admin/login">Staff sign-in</Link>
+    <Link className="corner-link staff" to="/admin/login">Staff sign-in</Link>
     </>
   )
 }

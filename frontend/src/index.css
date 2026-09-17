@@ -148,20 +148,23 @@ code { background: var(--bg); padding: 0.1rem 0.3rem; border-radius: 3px; font-s
  * and adjust balances.
  */
 .theme-admin {
-  --navy: #9e1b13;         /* 8.02:1 with white - headings, buttons */
+  --navy: #9e1b13;         /* 8.02:1 with white - headings, buttons, nav bar */
   --blue: #8c1109;         /* 9.55:1 with white - links, focus rings */
   --field-border: #8a6b68; /* 4.79:1 on surface, past the 3:1 minimum */
   --bg: #fdf6f5;
+}
 
-  /* The wrapper is the page, so it has to paint its own background - the token
-   * above only reaches things inside it, not <body>. */
+/* Tokens above, layout here, so the theme can go on the nav bar without
+ * dragging a page's padding along with it. The nav takes `.theme-admin` alone;
+ * the two staff pages take both. */
+.admin-page {
   min-height: 70vh;
   margin: -2rem -1.5rem;
   padding: 2rem 1.5rem;
   background: var(--bg);
 }
 
-.theme-admin .card { border-color: #e8c9c6; }
+.admin-page .card { border-color: #e8c9c6; }
 
 /* -------------------------------------------------------- nav: name + role */
 
@@ -218,18 +221,34 @@ button.secondary {
   color: var(--navy);
 }
 
-/* A quiet way through to the other kind of sign-in. Fixed to the corner so it
- * never competes with the form, which is what almost everyone is here for. */
+/* The way through to the other kind of sign-in. Fixed to the corner so it never
+ * competes with the form, which is what almost everyone is here for.
+ *
+ * Each one is painted in the colour of the side it leads TO, not the side it
+ * sits on: the staff link is red on the blue customer pages, the customer link
+ * is blue on the red staff pages. So these two are the one place that must not
+ * read --navy - inside `.theme-admin` that token is already red, and the button
+ * would vanish into the page it is trying to lead away from. Literal values,
+ * deliberately.
+ */
 .corner-link {
   position: fixed;
   bottom: 1rem;
   left: 1rem;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--field-border);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
   border-radius: 6px;
-  background: var(--surface);
+  border: 1px solid transparent;
   font-size: 0.85rem;
+  font-weight: 600;
   text-decoration: none;
+  color: #fff;
 }
 
-.corner-link:hover { border-color: var(--navy); }
+.corner-link.staff    { background: #9e1b13; }  /* 8.02:1 with white  */
+.corner-link.customer { background: #003b70; }  /* 11.29:1 with white */
+
+.corner-link.staff:hover    { background: #7d150f; }
+.corner-link.customer:hover { background: #00294e; }

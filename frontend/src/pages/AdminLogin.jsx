@@ -61,7 +61,7 @@ export default function AdminLogin() {
   }
 
   return (
-    <div className="theme-admin">
+    <div className="theme-admin admin-page">
       <div className="card narrow">
         <h1>Admin sign-in</h1>
         <p className="hint">
@@ -90,7 +90,7 @@ export default function AdminLogin() {
           Need a staff account? <Link to="/admin/register">Register with the team code</Link>.
         </p>
       </div>
-      <Link className="corner-link" to="/login">← Customer login</Link>
+      <Link className="corner-link customer" to="/login">← Customer login</Link>
     </div>
   )
 }
