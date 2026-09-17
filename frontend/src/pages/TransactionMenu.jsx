@@ -63,8 +63,14 @@ const KINDS = {
  * care can leave it off. */
 export default function TransactionMenu({ account, onAccountChange }) {
   /* Which action is selected. Everything below the picker is derived from it,
-   * so switching the dropdown switches the form with no other bookkeeping. */
-  const [kind, setKind] = useState('DEPOSIT')
+   * so switching the dropdown switches the form with no other bookkeeping.
+   *
+   * It starts as '' - no action - on purpose. Defaulting to Deposit would show
+   * a working deposit form the moment the page opens, and a form that already
+   * works is not somewhere people look for a dropdown. Starting empty makes
+   * choosing the action the first thing you do, which is the only way the other
+   * two get discovered. */
+  const [kind, setKind] = useState('')
 
   /* Both inputs are kept as the raw text the user typed, not as numbers.
    * Storing a number would fight the user: "2." and "" are both states you have
@@ -77,8 +83,9 @@ export default function TransactionMenu({ account, onAccountChange }) {
   const [error, setError] = useState(null)    // what went wrong, or null
   const [result, setResult] = useState(null)  // what succeeded, or null
 
-  // Derived, not state: it is looked up fresh each render, so it can never
-  // disagree with the dropdown.
+  /* Derived, not state: looked up fresh each render, so it can never disagree
+   * with the dropdown. Undefined while nothing is chosen - KINDS has no ''
+   * key - and that absence is what the form below keys off. */
   const kindConfig = KINDS[kind]
 
   function handleKindChange(event) {
@@ -185,6 +192,13 @@ export default function TransactionMenu({ account, onAccountChange }) {
             * new value. Pass `value` without `onChange` and the field looks
             * frozen, because you told React the value never changes. */}
           <select value={kind} onChange={handleKindChange}>
+            {/* The empty first option is what makes the page open with nothing
+              * chosen. Its value is '', which matches the initial state, so
+              * this is the option the browser shows - and because it reads as
+              * a prompt rather than as an action, the list is the obvious next
+              * thing to open. It stays selectable, so you can back out. */}
+            <option value="">Choose an action...</option>
+
             {/* Built from the same KINDS object the form below reads, so the
               * dropdown and the form can never drift apart. Object.entries
               * gives [key, value] pairs; `key` is React's identity for the
@@ -197,56 +211,66 @@ export default function TransactionMenu({ account, onAccountChange }) {
       </div>
 
       {/* --------------------------------------------------------- the form */}
-      <form className="card" onSubmit={handleSubmit}>
-        {/* `{cond && <jsx/>}` renders the right-hand side only when the left is
-          * true; React draws nothing for false, null or undefined. This one
-          * field is the only structural difference between the three actions. */}
-        {kindConfig.needsDestination && (
+      {/* The ternary is the two-way version of `{cond && <jsx/>}`: one branch
+        * or the other, never both. There is no form at all until an action is
+        * chosen, so there is no button to press by mistake and nothing to read
+        * except the one instruction. */}
+      {kindConfig ? (
+        <form className="card" onSubmit={handleSubmit}>
+          {/* `{cond && <jsx/>}` renders the right-hand side only when the left
+            * is true; React draws nothing for false, null or undefined. This
+            * one field is the only structural difference between the three. */}
+          {kindConfig.needsDestination && (
+            <label>
+              Destination account id
+              <input
+                type="text"
+                inputMode="numeric"
+                value={toAccountText}
+                onChange={(event) => setToAccountText(event.target.value)}
+                placeholder="e.g. 2"
+              />
+            </label>
+          )}
+
           <label>
-            Destination account id
+            {/* The label text is data, so this is one field serving all three. */}
+            {kindConfig.amountLabel}
+            {/* type="text", not type="number". A number input silently allows
+              * "1e5" and "-", spins the value on a stray scroll, and hands back
+              * "" for anything it considers invalid - so you cannot tell a typo
+              * from an empty box. parseDollars does the checking instead, in
+              * one place, the same way for every field. */}
             <input
               type="text"
-              inputMode="numeric"
-              value={toAccountText}
-              onChange={(event) => setToAccountText(event.target.value)}
-              placeholder="e.g. 2"
+              inputMode="decimal"
+              value={amountText}
+              onChange={(event) => setAmountText(event.target.value)}
+              placeholder="0.00"
             />
           </label>
-        )}
 
-        <label>
-          {/* The label text is data, so this is one field serving all three. */}
-          {kindConfig.amountLabel}
-          {/* type="text", not type="number". A number input silently allows
-            * "1e5" and "-", spins the value on a stray scroll, and hands back
-            * "" for anything it considers invalid - so you cannot tell a typo
-            * from an empty box. parseDollars does the checking instead, in one
-            * place, the same way for every field. */}
-          <input
-            type="text"
-            inputMode="decimal"
-            value={amountText}
-            onChange={(event) => setAmountText(event.target.value)}
-            placeholder="0.00"
-          />
-        </label>
+          {/* Nothing is checked while you type. A half-typed amount is not a
+            * mistake, and telling someone "25.0 is wrong" as they are on their
+            * way to 25.00 is noise. Validation happens in handleSubmit, and
+            * this is where its verdict appears. */}
+          {error && <p className="error">{error}</p>}
+          {result && <p className="success">{result}</p>}
 
-        {/* Nothing is checked while you type. A half-typed amount is not a
-          * mistake, and telling someone "25.0 is wrong" as they are on their
-          * way to 25.00 is noise. Validation happens in handleSubmit, and this
-          * is where its verdict appears. */}
-        {error && <p className="error">{error}</p>}
-        {result && <p className="success">{result}</p>}
-
-        {/* Bottom right. The wrapper is what does it: justify-content: flex-end
-          * pushes the button to the end of the row, where a form in a column
-          * would otherwise stretch it across the full width. */}
-        <div className="form-actions">
-          <button type="submit" disabled={busy}>
-            {busy ? 'Working...' : kindConfig.submitLabel}
-          </button>
-        </div>
-      </form>
+          {/* Bottom right. The wrapper is what does it: justify-content:
+            * flex-end pushes the button to the end of the row, where a form in
+            * a column would otherwise stretch it across the full width. */}
+          <div className="form-actions">
+            <button type="submit" disabled={busy}>
+              {busy ? 'Working...' : kindConfig.submitLabel}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <p className="card hint">
+          Choose an action above — deposit, withdraw or transfer — to get started.
+        </p>
+      )}
     </div>
   )
 }
