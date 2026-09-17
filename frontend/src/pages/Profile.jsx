@@ -46,7 +46,7 @@ export default function Profile() {
   }
 
   return (
-    <div className="card narrow">
+    <div className="card profile">
       <h1>My details</h1>
 
       {editing ? (

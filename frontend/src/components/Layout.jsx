@@ -20,6 +20,9 @@ export default function Layout() {
   return (
     <div className="app">
       <header className={adminContext ? 'nav theme-admin' : 'nav'}>
+        {/* The bar spans the window; this keeps its contents on the same rail as
+            the page below, so the brand is not stuck to the window edge. */}
+        <div className="nav-inner">
         <Link to="/" className="nav-brand">Simple Bank</Link>
 
         <nav className="nav-links">
@@ -49,6 +52,7 @@ export default function Layout() {
               <NavLink to="/login">Sign in</NavLink>
             </>
           )}
+        </div>
         </div>
       </header>
 

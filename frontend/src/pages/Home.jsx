@@ -1,9 +1,12 @@
 /* The home page, and the first thing anyone sees.
  *
- * It is public, so it has to be two pages in one: a landing page with the sign-in
- * form for a visitor, and the account summary for somebody already signed in.
- * That is one `if`, and it is the reason every other route can stay behind the
- * auth guard - this is the only door.
+ * It is public, so it has to be two pages in one: a landing page with the
+ * sign-in form for a visitor, the account summary for somebody already signed
+ * in. That is one `if`, and it is the reason every other route can stay behind
+ * the auth guard - this is the only door.
+ *
+ * The offer shows either way. The only thing signing in removes is the sign-in
+ * form beside it.
  */
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/auth-context'
@@ -11,26 +14,54 @@ import { formatCents } from '../lib/money'
 import LoginForm from '../components/LoginForm'
 import AboutUs from '../components/AboutUs'
 
+function Promo() {
+  return (
+    <div className="promo card lift">
+      <h2>Start our new credit card with 10% APR!</h2>
+      <div className="promo-inner card">
+        <p>Start a new account at Simple Bank!</p>
+        <p>Representative APR 10%. Credit is subject to status.</p>
+        <Link className="apply lift" to="/register">Apply now</Link>
+      </div>
+    </div>
+  )
+}
+
+/* One bar per account, each a different colour. The colour is picked by
+ * accountId rather than by position in the list, so an account keeps the same
+ * colour after one above it is closed or the order changes - a balance that
+ * changes colour between visits is a balance you look at twice. */
+function AccountBars({ accounts }) {
+  return (
+    <ul className="bars">
+      {accounts.map((account) => (
+        <li key={account.accountId}>
+          <Link to={`/accounts/${account.accountId}`}
+                className={`bar lift bar-${account.accountId % 6}`}>
+            <span>
+              <span className="bar-type">{account.accountType}</span>{' '}
+              <span className="bar-id">#{account.accountId}</span>
+            </span>
+            {account.status === 'FROZEN' && <span className="badge">FROZEN</span>}
+            {/* Divide by 100 to display, never to calculate. */}
+            <span className="bar-balance">{formatCents(account.balance)}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function Landing() {
   const navigate = useNavigate()
-
   return (
     <>
       <div className="hero">
-        <div className="promo card lift">
-          <h2>Start our new credit card with 10% APR!</h2>
-          <div className="promo-inner card">
-            <p>Start a new account at Simple Bank!</p>
-            <p>Representative APR 10%. Credit is subject to status.</p>
-            <Link className="apply lift" to="/register">Apply now</Link>
-          </div>
-        </div>
-
+        <Promo />
         <div className="signin card">
           <LoginForm onDone={() => navigate('/')} />
         </div>
       </div>
-
       <AboutUs />
     </>
   )
@@ -39,29 +70,20 @@ function Landing() {
 function Dashboard() {
   const { user, accounts, isAdmin } = useAuth()
 
-  // Summing cents, never dollars. Integers stay exact; the divide by 100 happens
-  // once, inside formatCents, on the way to the screen.
-  const total = accounts.reduce((sum, account) => sum + account.balance, 0)
-
   return (
     <div>
       <h1>Welcome back, {user.name}</h1>
 
-      <div className="card">
-        {accounts.length > 0 ? (
-          <>
-            <p className="hint">
-              Across {accounts.length} account{accounts.length === 1 ? '' : 's'}
-            </p>
-            <p className="total">{formatCents(total)}</p>
-          </>
-        ) : (
-          <p>You do not have a bank account yet.</p>
-        )}
+      {/* Same offer as the landing page, without the sign-in form beside it. */}
+      <div className="hero hero-solo">
+        <Promo />
       </div>
 
+      {accounts.length > 0
+        ? <AccountBars accounts={accounts} />
+        : <div className="card"><p>You do not have a bank account yet.</p></div>}
+
       <div className="actions">
-        {accounts.length > 0 && <Link className="action lift" to="/accounts">View accounts</Link>}
         <Link className="action lift" to="/accounts/new">Open an account</Link>
         {accounts.length > 0 && <Link className="action lift" to="/transfer">Transfer money</Link>}
         <Link className="action lift" to="/profile">My details</Link>
