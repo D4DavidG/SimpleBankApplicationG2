@@ -262,6 +262,24 @@ class TestAdmin(BankTestCase):
         self.assertIsNotNone(created_at.tzinfo)
         self.assertLess(datetime.now(timezone.utc) - created_at, timedelta(seconds=30))
 
+    def test_a_credit_account_can_be_read_back(self):
+        """A type the factory does not know makes every read of the account list
+        raise, which takes out a whole page rather than one row. CREDIT is in the
+        shared database already, so the factory has to know it."""
+        from bank.models import make_account
+        account = make_account("CREDIT", user_id=self.aaron.user_id)
+        self.assertEqual(account.account_type, "CREDIT")
+
+    def test_a_credit_account_still_cannot_go_negative_yet(self):
+        """Pinning the limitation rather than leaving it implied: this is not a
+        real credit account until Account._apply takes its floor from
+        minimum_balance. See CreditAccount's docstring."""
+        from bank.models import make_account
+        account = make_account("CREDIT", user_id=self.aaron.user_id)
+        self.assertEqual(account.minimum_balance, 0)
+        with self.assertRaises(InsufficientFunds):
+            account._apply(-100)
+
     def test_adjustment_requires_a_written_reason(self):
         with self.assertRaises(ValueError):
             self.svc.adjust(self.a_checking.account_id, 5000, "CREDIT", "oops", self.david)

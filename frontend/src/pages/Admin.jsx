@@ -111,6 +111,9 @@ export default function Admin() {
                 <option value="ALL">All</option>
                 <option value="CHECKING">Checking</option>
                 <option value="SAVINGS">Savings</option>
+                {/* CREDIT exists in the shared data. Without this the filter
+                    cannot reach those accounts, only "All" shows them. */}
+                <option value="CREDIT">Credit</option>
               </select>
             </label>
           </div>

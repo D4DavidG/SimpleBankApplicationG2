@@ -42,7 +42,7 @@ from .errors import (
 )
 from .models import (
     ACTIVE, DEPOSIT, FROZEN, ROLE_ADMIN, ROLE_CUSTOMER, TRANSFER_IN,
-    TRANSFER_OUT, WITHDRAWAL, Account, AuthToken, CheckingAccount, SavingsAccount,
+    TRANSFER_OUT, WITHDRAWAL, Account, AuthToken, CheckingAccount, CreditAccount, SavingsAccount,
     Transaction, User, make_account,
 )
 from .money import format_money, parse_amount, to_cents
@@ -57,7 +57,8 @@ __all__ = [
     # api
     "BankAPI", "serve",
     # domain types
-    "User", "Account", "CheckingAccount", "SavingsAccount", "Transaction",
+    "User", "Account", "CheckingAccount", "CreditAccount", "SavingsAccount",
+    "Transaction",
     "AuthToken", "make_account",
     # money
     "to_cents", "parse_amount", "format_money",
