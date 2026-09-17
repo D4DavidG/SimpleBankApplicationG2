@@ -525,5 +525,5 @@ class MongoStore:
     def audit_entries(self) -> list[tuple]:
         """Oldest first, in the same tuple shape as the in-memory store."""
         cursor = self._audit.find({}, session=self._session).sort("_id", ASCENDING)
-        return [(doc["actor_user_id"], doc["action"], doc["account_id"], doc["reason"])
-                for doc in cursor]
+        return [(doc["actor_user_id"], doc["action"], doc["account_id"], doc["reason"],
+                 doc["created_at"]) for doc in cursor]

@@ -80,7 +80,7 @@ export default function Admin() {
         * refresh; the day it does not, this is the first thing to look at.
         * The state is in the words, not only in the colour. */}
       {report && (
-        <p className={report.balanced ? 'hint' : 'error'}>
+        <p className={report.balanced ? 'admin-reconciliation hint' : 'admin-reconciliation error'}>
           {report.balanced
             ? `Balanced — ${report.checked} accounts checked, every balance matches its ledger.`
             : `Not balanced — ${report.discrepancies.length} of ${report.checked} accounts disagree with their ledger.`}

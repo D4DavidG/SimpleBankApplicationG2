@@ -12,6 +12,7 @@ know which store they were given.
 import itertools
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 from .errors import AccountNotFound, EmailAlreadyUsed, UserNotFound
 from .models import Account, AuthToken, Transaction, User
@@ -226,8 +227,15 @@ class BankStore:
 
     def add_audit_entry(self, actor_user_id: int, action: str,
                         account_id: int | None, reason: str) -> None:
-        self._audit.append((actor_user_id, action, account_id, reason))
+        # The timestamp is recorded here rather than passed in, so no caller can
+        # backdate a row. MongoStore already stored one; this is the in-memory
+        # store catching up so both return the same five-tuple.
+        self._audit.append((actor_user_id, action, account_id, reason,
+                            datetime.now(timezone.utc)))
 
     def audit_entries(self) -> list[tuple]:
-        """Oldest first, as a copy, so a caller cannot append by holding the list."""
+        """Oldest first, as a copy, so a caller cannot append by holding the list.
+
+        (actor_user_id, action, account_id, reason, created_at)
+        """
         return list(self._audit)

@@ -714,10 +714,16 @@ class BankAPI:
                      "account": account_json(account)}
 
     def admin_audit(self, request: Request) -> tuple[int, dict]:
-        """Read-only. Who did what, to which account, and why."""
+        """Read-only. Who did what, to which account, why, and when.
+
+        `createdAt` goes out as UTC in ISO 8601, like every other timestamp in
+        this API. Which zone to show it in is the client's decision, not the
+        server's - the admin page renders it in Eastern time.
+        """
         return 200, {"entries": [
-            {"actorUserId": a, "action": b, "accountId": c, "reason": d}
-            for a, b, c, d in self.service.audit_log(request.actor)
+            {"actorUserId": a, "action": b, "accountId": c, "reason": d,
+             "createdAt": e.isoformat()}
+            for a, b, c, d, e in self.service.audit_log(request.actor)
         ]}
 
     def admin_reconcile(self, request: Request) -> tuple[int, dict]:

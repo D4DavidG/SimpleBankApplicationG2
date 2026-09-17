@@ -6,6 +6,7 @@ No pytest, no database, no server. Every test is a function call, which is the
 payoff for keeping the rules in services.py free of framework imports.
 """
 import unittest
+from datetime import datetime, timedelta, timezone
 from dataclasses import FrozenInstanceError
 
 from bank import (
@@ -251,10 +252,15 @@ class TestAdmin(BankTestCase):
                         "Reversing a fee misposted on 2026-09-10", self.david)
         self.assertEqual(self.a_checking.balance, 6250)
         self.assertEqual(len(self.svc.audit), 1)
-        actor, action, account_id, reason = self.svc.audit[0]
+        actor, action, account_id, reason, created_at = self.svc.audit[0]
         self.assertEqual(actor, self.david.user_id)
         self.assertEqual(action, "ADJUST_CREDIT")
         self.assertIn("misposted", reason)
+        self.assertEqual(account_id, self.a_checking.account_id)
+        # Timezone-aware and recorded now. A naive datetime here would be read as
+        # local time by a client and shift the whole log by the UTC offset.
+        self.assertIsNotNone(created_at.tzinfo)
+        self.assertLess(datetime.now(timezone.utc) - created_at, timedelta(seconds=30))
 
     def test_adjustment_requires_a_written_reason(self):
         with self.assertRaises(ValueError):
