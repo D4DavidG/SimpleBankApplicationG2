@@ -10,6 +10,14 @@ that made it out of date.
 explain it. A feature nobody on the team can walk a room through is worse than no
 feature. Before adding anything, ask whether it earns the lines it costs.
 
+## Project values
+
+- This is a practice project, not a production system, so scope stays intentionally small.
+- Keep the working plan to no more than 3-5 core features.
+- Keep most documents under 300 words so they can be explained in a short presentation.
+- AGENTS.md is the exception. It can be longer because it is a working log, not a presentation artifact.
+- Prefer clarity over completeness. If a feature cannot be explained simply, it probably should not be added.
+
 ---
 
 ## Where we are
