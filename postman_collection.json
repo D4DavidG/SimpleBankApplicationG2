@@ -170,6 +170,30 @@
           }
         },
         {
+          "name": "TODO: POST /api/auth/me",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "This route has no example yet. Add one to EXAMPLES in tools/export_postman.py."
+          }
+        },
+        {
           "name": "Login (admin)",
           "request": {
             "method": "POST",
