@@ -132,6 +132,25 @@ button:disabled { opacity: 0.6; cursor: default; }
   color: var(--red);
 }
 
+/* -------------------------------------------------- transaction menu */
+
+/* The account on the left, the action picker on the right. wrap so the two
+ * stack instead of squeezing on a narrow screen. */
+.menu-head { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
+.kind-picker { margin-left: auto; }
+
+.balance-large {
+  font-size: 1.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A form is a column, so a button in it stretches the full width by default.
+ * This row is what puts the submit button at the bottom right. */
+.form-actions { display: flex; justify-content: flex-end; }
+
+.success { color: var(--green); }
+
 .error { color: var(--red); }
 .hint { color: var(--muted); font-size: 0.85rem; }
 
