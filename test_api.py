@@ -1,6 +1,6 @@
 """Tests for the controller layer. Standard library only.
 
-    python -m unittest -v
+    MONGO_TESTS=1 python -m unittest -v
 
 `test_bank.py` proves the RULES are right. This file proves the HTTP layer maps
 them correctly - that a domain exception becomes the right status code, that a
