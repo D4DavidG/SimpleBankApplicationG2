@@ -98,8 +98,10 @@ withdrawal or transfer that does not refresh it leaves both showing the old
 balance. `const { refreshAccounts } = useAuth()`.
 
 **Admin role comes from `BANK_ADMIN_CODE`, checked server-side.** Registering
-with a matching `adminCode` creates an ADMIN. Never check that code in the
-browser — anything in the bundle is readable with Ctrl+U. See `api._role_for`.
+with a matching `adminCode` creates an ADMIN — see `api._role_for`. The same
+code also appears in `AdminLogin.jsx`, checked in the browser, where it is a
+signpost and not a control: login takes no code, so there is nowhere to send it.
+Never rely on a browser-side check for anything that has to actually hold.
 
 **All backend code is standard library only.** `requirements.txt` exists for
 pymongo and nothing else. Keep it that way.

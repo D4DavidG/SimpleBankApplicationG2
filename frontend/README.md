@@ -55,11 +55,21 @@ The two pages at `/admin/login` and `/admin/register` are reached from the small
 link in the bottom-left corner of the customer login and register pages, and they
 are red rather than navy so the context is obvious.
 
-Registering there asks for a team code. The code is **not** checked in the
-browser — it is sent to the server as `adminCode` and compared against
-`BANK_ADMIN_CODE` from `.env`. A check written in JavaScript would ship inside
-the bundle where anyone can read it, and would stop nobody. If `BANK_ADMIN_CODE`
-is not set, admin registration is closed and any code is refused.
+Both ask for the team code, but the two codes do different amounts of work and
+it is worth knowing which is which.
+
+**On `/admin/register` it is a real check.** The code goes to the server as
+`adminCode` and is compared against `BANK_ADMIN_CODE` from `.env`. Get it wrong
+and you get a 403 and no user at all. If `BANK_ADMIN_CODE` is not set, admin
+registration is closed and any code is refused.
+
+**On `/admin/login` it is a speed bump.** It is checked in the browser, because
+`POST /api/auth/login` takes an email and a password and nothing else — there is
+nowhere to send a code. Anyone can read it out of the bundle, and anyone who
+signs in at `/login` instead gets the same session. That is fine: the code is not
+what protects anything. Your role comes from your account, and the server
+re-checks it on every admin request. Do not add a browser-side check anywhere it
+is meant to actually stop someone.
 
 ## What is waiting to be claimed
 
