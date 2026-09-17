@@ -1,16 +1,25 @@
 Account section:
 
 Create Account
+    PATH: /api/auth/register
     VERB: POST
-    DESCRIPTION: Creates a new account for a new user
+    DESCRIPTION: Creates a new account for a new user, and logs them in.
+                 The role is not read from the body. A body may carry adminCode,
+                 which is compared - in fixed time - against a value only the
+                 server has, and the new user is an ADMIN if it matches. With no
+                 code configured on the server, admin registration is shut and
+                 any adminCode is refused, so a deployment nobody set up cannot
+                 grow admins by accident.
     INPUT:
         name
         email
         password
+        adminCode (optional - makes the new user an ADMIN)
     OUTPUT:
         cookie
     FAILURE STATES:
         email already in use
+        adminCode was sent and is wrong, or no admin code is configured
 
 Login
     VERB: POST
@@ -34,6 +43,33 @@ Who am I
         UserView
     FAILURE STATES:
         invalid cookie
+
+Edit My Profile
+    PATH: /api/auth/me
+    VERB: POST
+    DESCRIPTION: changes the caller's own name, email, or both. Which user is
+                 edited comes from the cookie, never from the body, so there is
+                 no id here that could be pointed at somebody else.
+                 A field that is absent is left alone. A field that is present
+                 and blank is a 400 rather than a way to erase your own name.
+                 Role and password are not reachable from here: a profile edit
+                 that could set a role would be the privilege escalation that
+                 registration is careful to avoid.
+    INPUT
+        cookie
+        name (optional)
+        email (optional)
+    OUTPUT
+        UserView
+    FAILURE STATES:
+        invalid cookie
+        neither name nor email was sent
+        name or email was sent blank
+        that email belongs to somebody else
+    NOTES:
+        Email is the login identifier, so changing it changes what you log in
+        with. The old address stops working immediately.
+
 
 Health
     PATH: /api/health
@@ -196,8 +232,9 @@ Admin section
     Every endpoint below requires a cookie belonging to a user whose role is
     ADMIN. A logged-in customer hitting any of these gets "admin role required"
     rather than a not-found, since the URL is no secret.
-    Admins are created by the seed or by another admin. There is deliberately no
-    way to ask for the ADMIN role while registering.
+    Admins are created by the seed, by another admin, or by registering with the
+    right adminCode - see Create Account. There is deliberately no way to ask for
+    the ADMIN role by naming it in a request body.
 
 List Users
     PATH: /api/admin/users

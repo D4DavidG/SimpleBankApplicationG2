@@ -12,8 +12,9 @@ past that, it is doing too much.
 
 ## 1. Where we are
 
-Working: `/login`, `/register`, `/` (account list). Routing, the auth context,
-the route guard and the API layer are done and tested against the live backend.
+Working: home, the account list, login, register, admin sign-in, admin
+registration, and the profile page. Routing, the auth context, the route guard
+and the API layer are done and tested against the live backend.
 
 Stubbed: seven pages, one file each in `src/pages/`, each carrying a `TODO`
 comment that names the API call it needs and the rules that apply.
@@ -22,36 +23,55 @@ comment that names the API call it needs and the rules that apply.
 
 | # | Route | File | Brief | Owner | Done |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `/` | `Home.jsx` | 7.1 | — | ✅ |
-| 2 | `/register` | `Register.jsx` | 7.2 | — | ✅ |
-| 3 | `/login` | `Login.jsx` | bonus | — | ✅ |
-| 4 | `/accounts/new` | `OpenAccount.jsx` | 7.2 | | |
-| 5 | `/accounts/:id` | `AccountDetails.jsx` | 7.3 | | |
-| 6 | `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | | |
-| 7 | `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | | |
-| 8 | `/accounts/:id/transactions` | `Transactions.jsx` | 7.6 | | |
-| 9 | `/transfer` | `Transfer.jsx` | bonus | | |
-| 10 | `/admin` | `Admin.jsx` | — | | |
+| 1 | `/` | `Home.jsx` | 7.1 | David | ✅ |
+| 2 | `/accounts` | `Accounts.jsx` | 7.1 | David | ✅ |
+| 3 | `/login` | `Login.jsx` | bonus | David | ✅ |
+| 4 | `/register` | `Register.jsx` | 7.2 | David | ✅ |
+| 5 | `/admin/login` | `AdminLogin.jsx` | — | David | ✅ |
+| 6 | `/admin/register` | `AdminRegister.jsx` | — | David | ✅ |
+| 7 | `/profile` | `Profile.jsx` | — | David | ✅ |
+| 8 | `/accounts/new` | `OpenAccount.jsx` | 7.2 | | |
+| 9 | `/accounts/:id` | `AccountDetails.jsx` | 7.3 | | |
+| 10 | `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | | |
+| 11 | `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | | |
+| 12 | `/accounts/:id/transactions` | `Transactions.jsx` | 7.6 | | |
+| 13 | `/transfer` | `Transfer.jsx` | bonus | | |
+| 14 | `/admin` | `Admin.jsx` | — | | |
 
 Put your name in the Owner column and in the `owner` prop on the page's `<Stub>`.
 
-**Suggested split for a team of four:** one person takes 4 + 5 (the account
-pair), one takes 6 + 7 (they are near-identical, so build them together), one
-takes 8 + 9, one takes 10. Whoever finishes first takes the confirm step in §5.
+**Styling is David's, and it comes last.** The shared tokens in `src/index.css`
+are already set; leave the visual pass on your page until it works, then say so
+and it gets picked up. Use the existing classes (`card`, `form`, `error`,
+`hint`, `balance`, `badge`) rather than inventing new ones, and the pass will be
+mostly free.
+
+**Suggested split for the four open areas:** 9 + 10 (the account pair), 11 + 12
+(near-identical, build them together), 13 + 14, and 8 wherever it fits.
 
 ## 3. Build order
 
-1. **6 and 7 first — deposit and withdraw.** They are the smallest complete
+1. **Deposit and withdraw first (10, 11).** They are the smallest complete
    loop: input, validate, call, render the returned balance. Getting them right
    settles the money handling, the error display and the pending state for
    everyone else, and they are two of the brief's five core capabilities.
-2. **5, then 8.** Account details is mostly display. Transactions is the first
-   page with pagination.
-3. **4.** Opening an account is a two-field form.
-4. **9 and 10.** Transfer and admin are bonus surface.
+2. **Account details (9), then transactions (12).** Details is mostly display.
+   Transactions is the first page with pagination.
+3. **Open account (8).** A two-field form.
+4. **Transfer (13) and admin (14).** Bonus surface.
 
 Adding a page means a file in `src/pages/` and a line in `src/App.jsx`. Nothing
 else.
+
+**If your page moves money, call `refreshAccounts()` after it succeeds.** The
+account list lives in the auth context because the nav bar and the home page
+both read it; without the refresh, both keep showing the old balance.
+
+```js
+const { refreshAccounts } = useAuth()
+// ... after a successful deposit/withdraw/transfer:
+await refreshAccounts()
+```
 
 ## 4. The rules that apply to every page
 
@@ -85,6 +105,14 @@ app. Worth the twenty lines.
 Citi's palette: deep navy `#003b70`, a brighter blue `#056dae` for links, and the
 red from the arc over the "t" for errors and debits. All tokens are in
 `src/index.css` with their contrast ratios recorded in comments beside them.
+
+**The staff pages are red.** `/admin/login` and `/admin/register` wrap themselves
+in `.theme-admin`, which redefines `--navy`, `--blue`, `--field-border` and
+`--bg` for everything inside it. Custom properties inherit, so that one class
+recolours the whole subtree and no component knows it happened — there is no
+second stylesheet. The point is not decoration: you should be able to tell at a
+glance which context you are in, because one of the two can freeze accounts and
+adjust balances.
 
 We use the colours and not the marks — no Citi logo, wordmark or name anywhere.
 A practice page borrowing a palette is fine; one carrying a real bank's branding
