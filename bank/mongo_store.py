@@ -33,7 +33,7 @@ from pymongo.errors import (
 
 from .errors import (
     AccountNotFound, ConcurrentUpdate, DuplicateTransaction, EmailAlreadyUsed,
-    StorageUnavailable, UserNotFound,
+    StaleIdCounter, StorageUnavailable, UserNotFound,
 )
 from .models import CREDIT_TYPES, Account, Transaction, User, make_account
 
@@ -41,6 +41,20 @@ COLLECTIONS = ("users", "accounts", "transactions", "counters", "audit_log")
 
 # MongoDB's error code for two transactions trying to change one document.
 WRITE_CONFLICT = 112
+
+
+def _collided_on(exc: DuplicateKeyError, field: str) -> bool:
+    """Whether a duplicate-key error came from an index on `field`.
+
+    pymongo reports the offending index in `keyPattern`, so a collision on
+    `email` and a collision on `_id` are distinguishable - and they mean
+    completely different things. Falls back to the message text, which is all
+    older servers supply.
+    """
+    pattern = (exc.details or {}).get("keyPattern")
+    if isinstance(pattern, dict):
+        return field in pattern
+    return field in str(exc)
 
 
 def _translate(exc: PyMongoError) -> Exception:
@@ -255,9 +269,24 @@ class MongoStore:
                 "role": user.role, "password_hash": user.password_hash,
                 "created_at": user.created_at,
             }, session=self._session)
-        except DuplicateKeyError:
-            # Two registrations raced past the check above. The index settles it.
-            raise EmailAlreadyUsed(f"email already registered: {key}") from None
+        except DuplicateKeyError as exc:
+            # Which index rejected it decides what actually went wrong, and the
+            # two causes have nothing to do with each other.
+            if _collided_on(exc, "email"):
+                # Two registrations raced past the check above. The index settles it.
+                raise EmailAlreadyUsed(f"email already registered: {key}") from None
+            # The collision was on _id, so the counter is behind the data: it
+            # handed out a number some record already has. Reporting that as a
+            # duplicate email sends you looking through the users collection for
+            # an address that is not there.
+            raise StaleIdCounter(
+                f"the id counter for 'users' is behind the data: it produced "
+                f"{user.user_id}, which already exists. This happens when records "
+                f"were loaded without their counter - an import, a restore, or a "
+                f"seeder that numbered them differently. Reload the database with "
+                f"`python server.py --reset`, or set counters/_id='users' above "
+                f"the highest existing _id."
+            ) from None
         return user
 
     @_guarded

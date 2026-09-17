@@ -54,6 +54,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .errors import (
     AccountNotActive, AccountNotFound, BankError, ConcurrentUpdate, DuplicateTransaction,
+    StaleIdCounter,
     EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized,
     StorageUnavailable, UserNotFound,
 )
@@ -94,6 +95,9 @@ ERROR_STATUS = [
     # 503 Service Unavailable - the request was fine, but the database could not
     # be reached. Nothing was changed, so the caller can try again shortly.
     (StorageUnavailable, 503),
+    # A setup problem, not a request problem: retrying fails identically, so it
+    # is a 500 and the message says how to repair it.
+    (StaleIdCounter, 500),
 
     # Anything else from the domain that has not been given a status yet.
     (BankError, 400),
