@@ -642,7 +642,7 @@ owners before the demo, or use the handle as the display name.
 
 ```bash
 python -m unittest -q        # 93 tests, ~5 seconds
-python -m unittest -v        # with names
+MONGO_TESTS=1 python -m unittest -v        # with names, Mongo-enabled
 python -m unittest test_bank # rules only, ~0.01 seconds
 ```
 
