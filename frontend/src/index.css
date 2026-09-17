@@ -18,10 +18,31 @@
   --green: #0a7d3f;        /*  5.23:1 on white    - credits */
 
   /* surfaces and text */
-  --bg: #f4f6f8;
+  --bg: #e6ebf1;           /* the page behind the cards */
   --surface: #ffffff;
-  --text: #1a1d21;         /* 16.91:1 on surface */
-  --muted: #5c6672;        /*  5.84:1 on surface, 5.39:1 on bg */
+  --text: #1a1d21;         /* 16.91:1 on surface, 14.11:1 on bg */
+  --muted: #5c6672;        /*  5.84:1 on surface,  4.87:1 on bg */
+
+  /* ============================ SPACING: change it here ====================
+   * Every gap and pad on the site is one of these five, so widening the whole
+   * layout is one number rather than forty. They step roughly x1.5 each time,
+   * which is what stops a page ending up with 13px next to 14px next to 16px.
+   *
+   *   --s1  inside a control, between an icon and its text
+   *   --s2  between fields in a form
+   *   --s3  the default gap between cards, and card padding
+   *   --s4  between one section of a page and the next
+   *   --s5  around something meant to stand alone, like About us
+   *
+   * --page-w is how wide the content runs before it stops. The nav uses it too,
+   * so the brand lines up with the page below instead of sitting on the edge.
+   */
+  --s1: 0.5rem;
+  --s2: 0.75rem;
+  --s3: 1.25rem;
+  --s4: 2rem;
+  --s5: 3.5rem;
+  --page-w: 1100px;
 
   /* Two borders on purpose. The decorative one divides cards and has no
    * contrast requirement; the field one outlines things you can click or type
@@ -35,7 +56,22 @@
 
 * { box-sizing: border-box; }
 
-body { margin: 0; background: var(--bg); }
+/* Two very soft washes of brand colour in the top corners, over the flat page
+ * colour. They are large and low-contrast on purpose: the background's job is
+ * to sit still behind the money, and anything with a pattern or a hard edge
+ * starts competing with the numbers.
+ *
+ * `fixed` so the washes stay put while the page scrolls rather than sliding
+ * about, and they are painted on <body> so every page gets them for free. */
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(60rem 30rem at 12% -8%, rgb(5 109 174 / 13%), transparent 70%),
+    radial-gradient(45rem 28rem at 92% 0%, rgb(0 59 112 / 10%), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
+}
 
 /* Never suppress this. A keyboard-only user has to be able to complete a
  * deposit, and that means always being able to see where they are. */
@@ -46,22 +82,32 @@ body { margin: 0; background: var(--bg); }
 
 /* ------------------------------------------------------------------ frame */
 
-.nav {
+.nav { background: var(--navy); color: #fff; }
+
+/* The bar is full width; its contents are not. Without this the brand sits hard
+ * against the window edge while everything below it starts 100px in. */
+.nav-inner {
+  max-width: var(--page-w);
+  margin: 0 auto;
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem 1.5rem;
-  background: var(--navy);
-  color: #fff;
+  gap: var(--s4);
+  padding: var(--s2) var(--s4);
 }
 
 .nav-brand { font-weight: 700; font-size: 1.1rem; color: #fff; text-decoration: none; }
-.nav-links { display: flex; gap: 1rem; }
+.nav-links { display: flex; gap: var(--s3); }
 .nav a { color: #fff; text-decoration: none; }
 .nav a.active { text-decoration: underline; text-underline-offset: 4px; }
 .nav-user { margin-left: auto; display: flex; align-items: center; gap: 0.75rem; }
 
-.page { max-width: 900px; margin: 2rem auto; padding: 0 1.5rem; }
+.page {
+  max-width: var(--page-w);
+  margin: var(--s4) auto 0;
+  /* Generous room underneath. Without it the last section - usually About us,
+   * which grows when opened - ends flush against the bottom of the window. */
+  padding: 0 var(--s4) calc(var(--s5) * 2);
+}
 
 /* ---------------------------------------------------------------- pieces */
 
@@ -69,8 +115,8 @@ body { margin: 0; background: var(--bg); }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 1.25rem;
-  margin-bottom: 1rem;
+  padding: var(--s3);
+  margin-bottom: var(--s3);
 }
 
 .narrow { max-width: 420px; margin-inline: auto; }
@@ -79,7 +125,7 @@ h1 { font-size: 1.4rem; margin-top: 0; color: var(--navy); }
 
 a { color: var(--blue); }
 
-form { display: flex; flex-direction: column; gap: 0.75rem; }
+form { display: flex; flex-direction: column; gap: var(--s2); }
 
 label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9rem; color: var(--muted); }
 
@@ -199,7 +245,7 @@ code { background: var(--bg); padding: 0.1rem 0.3rem; border-radius: 3px; font-s
   margin: 0.25rem 0 0;
 }
 
-.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
 .action {
   display: inline-block;
@@ -299,7 +345,9 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 @media (prefers-reduced-motion: reduce) {
   .lift { transition: box-shadow 150ms ease; }
   .lift:hover, .lift:focus-visible { transform: none; }
-  .about, .about-body { transition: none; }
+  .about, .about-body, .about-body > div { transition: none; }
+  .about-body > div { opacity: 1; transform: none; }
+  .promo { animation: none; }
 }
 
 /* The pale blue panel behind the two columns. Borderless on purpose - the
@@ -308,16 +356,40 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 .hero {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.5rem;
-  padding: 1.5rem;
+  gap: var(--s4);
+  padding: var(--s4);
   border-radius: 12px;
   background: #dbeafe;   /* body text on this: 13.86:1 */
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--s4);
 }
 
 .hero > * { flex: 1 1 20rem; margin-bottom: 0; }
 
-.promo h2 { font-size: 1.05rem; margin: 0 0 1rem; color: var(--navy); }
+/* Signed in there is no sign-in form beside the offer, so the offer would
+ * stretch the full width and look nothing like it does on the landing page.
+ * This keeps it the same size and puts it in the middle. */
+.hero-solo { justify-content: center; }
+.hero-solo > * { flex: 0 1 34rem; }
+
+/* The gold glow from the sketch. It is a box-shadow rather than an image, so it
+ * follows the card's corners and costs nothing to move.
+ *
+ * The pulse is slow (4s) and shallow, because a fast or high-contrast flash is
+ * both unpleasant and a WCAG problem once it passes three times a second. It is
+ * turned off entirely for anyone who has asked for less motion - see the
+ * reduced-motion block above, which this joins. */
+.promo {
+  position: relative;
+  box-shadow: 0 0 0 1px rgb(217 168 32 / 45%), 0 0 22px 4px rgb(217 168 32 / 35%);
+  animation: glow 4s ease-in-out infinite;
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgb(217 168 32 / 40%), 0 0 16px 2px rgb(217 168 32 / 28%); }
+  50%      { box-shadow: 0 0 0 1px rgb(217 168 32 / 60%), 0 0 30px 8px rgb(217 168 32 / 45%); }
+}
+
+.promo h2 { font-size: 1.05rem; margin: 0 0 var(--s3); color: var(--navy); }
 .promo-inner { margin: 0; background: var(--bg); }
 .promo-inner p { margin: 0 0 0.75rem; }
 
@@ -335,7 +407,7 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 
 /* Email and password side by side while there is room, stacked when there is
    not. The fields keep the column layout `label` already gives them. */
-.field-row { display: flex; flex-wrap: wrap; gap: 1rem; }
+.field-row { display: flex; flex-wrap: wrap; gap: var(--s3); }
 .field-row > * { flex: 1 1 12rem; }
 
 .checkbox {
@@ -351,13 +423,27 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 
 /* Narrow until opened, then full width. Both the width and the height animate;
  * the height one is the grid trick below. */
+/* Sits well clear of whatever is above it, so it reads as its own thing rather
+ * than as the last item in the list. */
 .about {
   max-width: 24rem;
-  margin: 0 auto;
-  transition: max-width 400ms ease;
+  margin: var(--s5) auto 0;
+  /* Decelerating curve rather than `ease`: it leaves quickly and settles
+   * slowly, which is what reads as smooth instead of mechanical. The same
+   * curve and duration on every property here, so the width, the height and
+   * the fade finish together rather than in three separate steps. */
+  transition:
+    max-width 550ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin 550ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.about.open { max-width: 100%; }
+/* Open, it breaks out past the page rail - wider than the content above, which
+ * is what makes the opening feel like an opening. The margin is clamped so it
+ * can never reach the window edge on a narrow screen. */
+.about.open {
+  max-width: none;
+  margin-inline: clamp(-6rem, -4vw, 0rem);
+}
 
 .about-toggle {
   display: block;
@@ -375,23 +461,42 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 .about-body {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 400ms ease;
+  transition: grid-template-rows 550ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .about.open .about-body { grid-template-rows: 1fr; }
-.about-body > div { overflow: hidden; }
 
+/* The content fades and lifts as the row opens. Without this the cards are
+ * fully drawn from the first frame and simply get cropped less, which is the
+ * part that looked abrupt. Slightly slower than the row, and delayed, so the
+ * space is already there by the time they arrive. */
+.about-body > div {
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-0.5rem);
+  transition: opacity 400ms ease 120ms, transform 400ms ease 120ms;
+}
+
+.about.open .about-body > div { opacity: 1; transform: none; }
+
+/* Four equal columns on one row. A grid rather than flex-wrap, because wrap
+ * would drop the fourth card onto a line of its own the moment things got
+ * tight, which is exactly the layout this is replacing. Below 900px there is
+ * genuinely not room for four, so it becomes two. */
 .team {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--s3);
   list-style: none;
   padding: 0;
-  margin: 1rem 0 0;
+  margin: var(--s3) 0 0;
+}
+
+@media (max-width: 900px) {
+  .team { grid-template-columns: repeat(2, 1fr); }
 }
 
 .team li {
-  flex: 1 1 13rem;
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
@@ -401,4 +506,129 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 
 .team a { font-size: 0.85rem; word-break: break-word; }
 
-.repo { text-align: center; margin: 0.5rem 0 0; }
+/* Its own layer below the people, shaped like Apply now but wider and shorter. */
+.repo {
+  display: block;
+  width: min(100%, 34rem);
+  margin: var(--s3) auto 0;
+  padding: var(--s2);
+  border-radius: 6px;
+  background: var(--navy);
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+/* ------------------------------------------------------- account bars */
+
+/* One wide bar per account: what it is on the left, what is in it on the right.
+ *
+ * On the colours. The sketch had pastels, and a pastel cannot carry white text -
+ * the yellow in it sits at 1.3:1 where 4.5:1 is the floor, which is not a near
+ * miss but unreadable. These six are the same idea taken as far as it goes
+ * while white still reads: saturated, distinct from each other, and every one
+ * of them at or above 4.7:1 with white at the LIGHTEST end of its gradient.
+ * The ratio is written next to each.
+ *
+ * The gloss is a diagonal gradient plus a hairline of white along the top edge,
+ * which is what light does on a curved glossy surface. No image.
+ */
+.bars { list-style: none; padding: 0; margin: 0 0 var(--s4); }
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-radius: 10px;
+  color: #fff;
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%), 0 2px 6px rgb(0 0 0 / 18%);
+}
+
+.bar-type { font-weight: 700; font-size: 1.05rem; }
+.bar-id { opacity: 0.85; font-size: 0.85rem; }
+
+.bar-balance {
+  margin-left: auto;
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* FROZEN has to be legible on any of the six, so it is a white chip with dark
+ * text rather than a tint of the bar it sits on. */
+.bar .badge { background: #fff; color: #9f1239; }
+
+.bar-0 { background: linear-gradient(135deg, #0f766e, #134e4a); }  /* 5.47:1 */
+.bar-1 { background: linear-gradient(135deg, #4f46e5, #3730a3); }  /* 6.29:1 */
+.bar-2 { background: linear-gradient(135deg, #7c3aed, #5b21b6); }  /* 5.70:1 */
+.bar-3 { background: linear-gradient(135deg, #e11d48, #9f1239); }  /* 4.70:1 */
+.bar-4 { background: linear-gradient(135deg, #b45309, #7c2d12); }  /* 5.02:1 */
+.bar-5 { background: linear-gradient(135deg, #047857, #064e3b); }  /* 5.48:1 */
+
+/* ------------------------------------------------------------- profile */
+
+/* The details page was a 420px column of 0.9rem text, which is a lot of
+ * squinting for the one page that exists to be read.
+ *
+ * `margin-inline: auto` is what centres it. A .card is a block, so without it
+ * the max-width just leaves it hugging the left. */
+.profile {
+  max-width: 46rem;
+  margin-inline: auto;
+  padding: var(--s4);
+  font-size: 1.05rem;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+
+.profile-head h1 { margin: 0; font-size: 1.8rem; }
+
+/* A circle, so equal width and height and a radius past half of it. Pushed to
+ * the right edge by the margin rather than by justify-content, so the title
+ * keeps its natural width. */
+.edit-circle {
+  margin-left: auto;
+  width: 4.5rem;
+  height: 4.5rem;
+  flex: none;
+  border-radius: 50%;
+  font-size: 1rem;
+}
+
+/* Each fact in its own box: label left, value right. */
+.detail-rows { margin: 0 0 var(--s3); }
+
+.detail-rows > div {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s2);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.detail-rows dt { font-size: 1rem; color: var(--muted); }
+
+.detail-rows dd {
+  margin: 0 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+}
+
+.profile label { font-size: 1rem; }
+.profile input { font-size: 1.05rem; padding: var(--s2); }

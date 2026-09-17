@@ -143,6 +143,24 @@ Pieces worth knowing about, because they are shared:
   `localStorage` and survives closing the browser; unticked, `sessionStorage`
   and it does not. The token still expires after a week either way.
 
+## 5c. Where to change the spacing
+
+All of it is in `:root` at the top of `src/index.css`. Five steps, each about
+1.5x the last, and every gap and pad on the site uses one of them:
+
+| Token | What it spaces |
+| --- | --- |
+| `--s1` | inside a control, icon to text |
+| `--s2` | between fields in a form |
+| `--s3` | card padding, and the gap between cards |
+| `--s4` | one section of a page to the next |
+| `--s5` | around something standing alone, like About us |
+| `--page-w` | how wide the content runs before it stops — the nav uses it too, so the brand lines up with the page |
+
+Change one of those and the whole site moves together. Adding a sixth value
+because something "needs a bit more" is how a page ends up with 13px next to
+14px next to 16px, so reach for the next step up instead.
+
 ## 6. Theme
 
 Citi's palette: deep navy `#003b70`, a brighter blue `#056dae` for links, and the
@@ -173,6 +191,13 @@ Three rules carried into the CSS already:
 Also: `tabular-nums` on every currency figure so a column of balances lines up,
 and no animated balance counters — a number ticking up reads as alarming in a
 bank.
+
+**The account bars are six fixed colours** (`.bar-0` … `.bar-5` in
+`index.css`), picked by `accountId % 6` so an account keeps its colour between
+visits. Each one is a gradient, and white text clears 4.5:1 at the *lightest*
+end of every one of them — the ratio is written beside each rule. If you add a
+seventh colour, compute it before you commit it; a pastel cannot carry white
+text, which is why these are saturated rather than pale.
 
 ## 7. The AI assistant
 

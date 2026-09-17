@@ -40,9 +40,10 @@ export default function AboutUs() {
               </li>
             ))}
           </ul>
-          <p className="repo">
-            <a href={REPO} target="_blank" rel="noreferrer">Project repo</a>
-          </p>
+          {/* Its own layer under the people, shaped like Apply now. */}
+          <a className="repo lift" href={REPO} target="_blank" rel="noreferrer">
+            Project repo
+          </a>
         </div>
       </div>
     </section>
