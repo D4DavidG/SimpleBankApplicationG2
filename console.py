@@ -79,9 +79,7 @@ class Quit(Exception):
 
 
 def ask(label, *, required=True, default=None):
-    """One prompt. Blank keeps the default; `q` leaves.
-
-    Every other prompt in this file is built on this one, so the rules about
+    """Every other prompt in this file is built on this one, so the rules about
     quitting and defaults are written once instead of eight times.
     """
     # A default is shown in brackets - "Account number [1]:" - so nobody has to
