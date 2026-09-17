@@ -10,17 +10,39 @@
 
 const BASE = '/api' // the dev server proxies this to the Python backend
 
-// The token lives in localStorage so a refresh does not log you out. It expires
-// an hour after it is issued; a 401 from any call means it is gone or stale.
+/* Where the token is kept is what "Remember me" actually changes:
+ *
+ *   localStorage    ticked    - survives closing the browser
+ *   sessionStorage  unticked  - gone when the tab closes
+ *
+ * Either way the token itself expires an hour after it was issued, so remember
+ * me buys a longer-lived *store*, not a longer-lived token; a 401 from any call
+ * means it has gone stale and the user logs in again.
+ *
+ * Every access is wrapped, because both stores throw rather than return null in
+ * some private-browsing modes. A session that cannot be persisted should still
+ * work until the tab closes, not crash on load.
+ */
 const TOKEN_KEY = 'bank.token'
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY)
+  } catch {
+    return null
+  }
 }
 
-export function setToken(token) {
-  if (token) localStorage.setItem(TOKEN_KEY, token)
-  else localStorage.removeItem(TOKEN_KEY)
+export function setToken(token, remember = false) {
+  try {
+    // Clear both first. Without this, logging in without "remember me" would
+    // leave an older long-lived token behind for getToken() to find later.
+    localStorage.removeItem(TOKEN_KEY)
+    sessionStorage.removeItem(TOKEN_KEY)
+    if (token) (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token)
+  } catch {
+    /* nothing can be stored; the session lasts until the page is closed */
+  }
 }
 
 /* Thrown by every failed call. The backend answers every failure with the same
@@ -66,9 +88,19 @@ const post = (path, body) => request('POST', path, body)
 /* ------------------------------------------------------------------ auth */
 
 export const health = () => get('/health')
-export const register = (name, email, password) => post('/auth/register', { name, email, password })
+// adminCode is the shared code from the admin register page. It is only ever
+// checked on the server - the copy in this file is just what the form collected,
+// and sending the wrong one is a 403 that creates nobody.
+export const register = (name, email, password, adminCode) =>
+  post('/auth/register', adminCode ? { name, email, password, adminCode }
+                                   : { name, email, password })
+
 export const login = (email, password) => post('/auth/login', { email, password })
 export const me = () => get('/auth/me')
+
+// Edit your own name or email. Which user gets edited comes from the token, so
+// there is no id to pass. Send only what changed; an omitted field is left alone.
+export const updateProfile = (changes) => post('/auth/me', changes)
 
 /* -------------------------------------------------------------- accounts */
 

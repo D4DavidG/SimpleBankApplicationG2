@@ -4,11 +4,19 @@ Shared context and the running TODO list. Read this before starting work, human
 or AI. If something here is out of date, fix it in the same commit as the code
 that made it out of date.
 
-## The one rule that outranks the others
+## Project values
 
-**Brevity.** This is a training project and it is graded partly on whether we can
-explain it. A feature nobody on the team can walk a room through is worse than no
-feature. Before adding anything, ask whether it earns the lines it costs.
+**Brevity outranks everything else here.** This is a practice project, not a
+production system, and it is graded partly on whether we can explain it. A
+feature nobody on the team can walk a room through is worse than no feature.
+
+- Scope stays small: 3-5 core features in the working plan, no more.
+- Most documents stay under 300 words, so they can be explained in a short
+  presentation. This file is the exception - it is a working log, not a
+  presentation artifact.
+- Prefer clarity over completeness. If a feature cannot be explained simply, it
+  probably should not be added.
+- Before adding anything, ask whether it earns the lines it costs.
 
 ---
 
@@ -16,11 +24,11 @@ feature. Before adding anything, ask whether it earns the lines it costs.
 
 | Layer | State |
 | --- | --- |
-| Domain, services, repository | Done. 109 tests, 14 skip without a Mongo cluster. |
-| REST API | Done. 17 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
+| Domain, services, repository | Done. 125 tests, 14 skip without a Mongo cluster. |
+| REST API | Done. 18 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
 | Auth | Done. Register, login, `/api/auth/me`, signed tokens, ADMIN role. |
 | Database | Done for MongoDB Atlas. In-memory fallback. **MySQL not started.** |
-| Frontend | **Scaffolded only.** Routing, auth, API layer and 3 real pages. 7 stubs. |
+| Frontend | Routing, auth, API layer, a public landing page, and 6 real pages (home, accounts, login, register, profile). 7 stubs left. |
 
 Run it: `python server.py` in one terminal, `cd frontend && npm run dev` in
 another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
@@ -31,8 +39,12 @@ another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
 
 ### Must ship — these are graded
 
-- [ ] **Frontend pages.** Seven stubs in `frontend/src/pages/`, one file each.
-      Plan and owner table: [frontend/PLAN.md](frontend/PLAN.md).
+- [ ] **Decide what happens to `TransactionMenu.jsx`.** It already does deposit,
+      withdraw and transfer in one component, which overlaps three of the stubs
+      below. Two people could otherwise build work that exists. Options and the
+      reasoning: [frontend/PLAN.md](frontend/PLAN.md) §2.
+- [ ] **Frontend pages.** The remaining stubs in `frontend/src/pages/`, one file
+      each. Plan and owner table: [frontend/PLAN.md](frontend/PLAN.md).
 - [ ] **SQL script.** A submission requirement and it does not exist in the repo.
       The schema and inserts are written and verified in the team's
       `seed_data_bank_app.md` planning doc, §3–4. Extract to `sql/schema.sql`
@@ -92,6 +104,18 @@ come back `balanced: true`.
 `crypto.randomUUID()` per submission attempt, so a double-click cannot move the
 money twice.
 
+**Call `refreshAccounts()` after moving money.** The account list lives in the
+auth context because the nav bar and the home page both read it. A deposit,
+withdrawal or transfer that does not refresh it leaves both showing the old
+balance. `const { refreshAccounts } = useAuth()`.
+
+**Admin role comes from `BANK_ADMIN_CODE`, checked server-side.** There is one
+register form for everybody, with an optional team code on it. A matching code
+creates an ADMIN; a wrong one is a 403 that creates nobody, which is what the
+"are you sure?" dialog on that page reacts to. The code exists nowhere in the
+frontend — grep the bundle and you will not find it — because a comparison
+written in JavaScript ships to the browser and stops nobody. See `api._role_for`.
+
 **All backend code is standard library only.** `requirements.txt` exists for
 pymongo and nothing else. Keep it that way.
 
@@ -104,5 +128,5 @@ pymongo and nothing else. Keep it that way.
 | `bank/` | The backend. `api.py` has the route table; `services.py` has the rules. |
 | `APIDocs.txt` | The API contract. The frontend's source of truth. |
 | `frontend/` | React + Vite. See its README and PLAN. |
-| `test_*.py` | 109 tests. `python -m unittest -q`. |
+| `test_*.py` | 125 tests. `python -m unittest -q`. |
 | `tools/check_mongo.py` | Run when Atlas will not connect. It explains what failed. |

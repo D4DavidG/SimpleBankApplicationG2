@@ -132,7 +132,273 @@ button:disabled { opacity: 0.6; cursor: default; }
   color: var(--red);
 }
 
+/* -------------------------------------------------- transaction menu */
+
+/* The account on the left, the action picker on the right. wrap so the two
+ * stack instead of squeezing on a narrow screen. */
+.menu-head { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
+.kind-picker { margin-left: auto; }
+
+.balance-large {
+  font-size: 1.6rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A form is a column, so a button in it stretches the full width by default.
+ * This row is what puts the submit button at the bottom right. */
+.form-actions { display: flex; justify-content: flex-end; }
+
+.success { color: var(--green); }
+
 .error { color: var(--red); }
 .hint { color: var(--muted); font-size: 0.85rem; }
 
 code { background: var(--bg); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85em; }
+
+/* ------------------------------------------------- the staff (admin) theme
+ *
+ * Custom properties inherit, so putting this class on an element recolours
+ * everything inside it without a single component knowing about it. That is the
+ * whole mechanism - there is no admin stylesheet. The nav bar wears it whenever
+ * an admin is signed in or the route is under /admin.
+ *
+ * The point is not decoration. You should always be able to tell at a glance
+ * which context you are acting in, because an admin can freeze accounts and
+ * adjust balances.
+ */
+.theme-admin {
+  --navy: #9e1b13;         /* 8.02:1 with white - headings, buttons, nav bar */
+  --blue: #8c1109;         /* 9.55:1 with white - links, focus rings */
+  --field-border: #8a6b68; /* 4.79:1 on surface, past the 3:1 minimum */
+  --bg: #fdf6f5;
+}
+
+
+
+/* -------------------------------------------------------- nav: name + role */
+
+.nav-name { display: flex; align-items: center; gap: 0.4rem; }
+
+.nav-role {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: #fff;
+  color: #9e1b13;
+}
+
+/* ------------------------------------------------------------ home + lists */
+
+.total {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 0.25rem 0 0;
+}
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+
+.action {
+  display: inline-block;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  background: var(--surface);
+  text-decoration: none;
+}
+
+.action:hover { border-color: var(--navy); }
+
+/* Definition list as a two-column detail table. */
+.details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1rem;
+  margin: 0 0 1.25rem;
+}
+
+.details dt { color: var(--muted); font-size: 0.9rem; }
+.details dd { margin: 0; display: flex; align-items: center; gap: 0.4rem; }
+.details dd .nav-role { background: var(--navy); color: #fff; }
+
+.row { display: flex; gap: 0.5rem; }
+
+button.secondary {
+  background: var(--surface);
+  color: var(--navy);
+}
+
+/* ----------------------------------------------- reveal toggle and dialog */
+
+/* The button sits on top of the right-hand end of the field, so the field keeps
+ * its own full width and nothing has to be measured. */
+.secret-field { position: relative; display: flex; }
+.secret-field input { flex: 1; padding-right: 2.75rem; }
+
+/* Visible at rest, not only on hover: a control you cannot see is a control
+ * nobody uses. A left border separates it from the text without boxing it in. */
+.reveal {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  bottom: 1px;
+  width: 2.75rem;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-left: 1px solid var(--field-border);
+  border-radius: 0 4px 4px 0;
+  background: var(--bg);
+  color: var(--muted);
+  line-height: 1;
+}
+
+.reveal:hover { background: #e7ebf0; color: var(--text); }
+
+/* Pressed means the text is showing, so the icon is crossed out. */
+.reveal[aria-pressed='true'] { color: var(--navy); }
+
+/* A native <dialog> comes with no styling and a full-page ::backdrop. */
+dialog {
+  max-width: 26rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  color: var(--text);
+  background: var(--surface);
+}
+
+dialog::backdrop { background: rgb(0 0 0 / 45%); }
+dialog h2 { margin-top: 0; font-size: 1.1rem; color: var(--navy); }
+dialog .row { margin-top: 1rem; flex-wrap: wrap; }
+
+/* ================================================================ home page */
+
+/* One hover rule for everything that should feel pickable, rather than the same
+ * three lines copied onto six selectors. 5% is enough to notice and small
+ * enough not to shove the layout around. */
+.lift {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.lift:hover,
+.lift:focus-visible {
+  transform: scale(1.05);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 18%);
+}
+
+/* Motion that scales things is the kind most likely to make somebody ill, so it
+ * is the kind to drop when they have asked for less of it. The shadow stays,
+ * which keeps the hover readable. */
+@media (prefers-reduced-motion: reduce) {
+  .lift { transition: box-shadow 150ms ease; }
+  .lift:hover, .lift:focus-visible { transform: none; }
+  .about, .about-body { transition: none; }
+}
+
+/* The pale blue panel behind the two columns. Borderless on purpose - the
+ * colour is what separates it from the page, so an outline as well would be
+ * saying the same thing twice. */
+.hero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  border-radius: 12px;
+  background: #dbeafe;   /* body text on this: 13.86:1 */
+  margin-bottom: 1.5rem;
+}
+
+.hero > * { flex: 1 1 20rem; margin-bottom: 0; }
+
+.promo h2 { font-size: 1.05rem; margin: 0 0 1rem; color: var(--navy); }
+.promo-inner { margin: 0; background: var(--bg); }
+.promo-inner p { margin: 0 0 0.75rem; }
+
+/* Same fill as the nav bar, white text: 11.29:1. */
+.apply {
+  display: block;
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: var(--navy);
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+/* Email and password side by side while there is room, stacked when there is
+   not. The fields keep the column layout `label` already gives them. */
+.field-row { display: flex; flex-wrap: wrap; gap: 1rem; }
+.field-row > * { flex: 1 1 12rem; }
+
+.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text);
+}
+
+.checkbox input { width: 1.1rem; height: 1.1rem; accent-color: var(--navy); }
+
+/* ---------------------------------------------------------------- about us */
+
+/* Narrow until opened, then full width. Both the width and the height animate;
+ * the height one is the grid trick below. */
+.about {
+  max-width: 24rem;
+  margin: 0 auto;
+  transition: max-width 400ms ease;
+}
+
+.about.open { max-width: 100%; }
+
+.about-toggle {
+  display: block;
+  width: 100%;
+  padding: 1.5rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+  border-radius: 12px;
+}
+
+/* `height: auto` cannot be transitioned, and hard-coding a pixel height breaks
+ * the moment the text wraps differently. A grid row going 0fr -> 1fr animates
+ * to exactly the content's height without anybody measuring it. The inner
+ * element needs the overflow, because the row is what is being clipped. */
+.about-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 400ms ease;
+}
+
+.about.open .about-body { grid-template-rows: 1fr; }
+.about-body > div { overflow: hidden; }
+
+.team {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+}
+
+.team li {
+  flex: 1 1 13rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
+  text-align: center;
+}
+
+.team a { font-size: 0.85rem; word-break: break-word; }
+
+.repo { text-align: center; margin: 0.5rem 0 0; }

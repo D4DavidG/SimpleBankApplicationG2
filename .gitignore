@@ -12,9 +12,10 @@ env/
 *.pem
 *.key
 
-# AI customization files. AGENTS.md IS committed now: it is the team's
-# shared TODO list, so it has to be in the repo everyone clones.
-.github/
+# AI customization files. Both AGENTS.md and .github/ ARE committed now: the
+# first is the team's shared TODO list and the second holds the prompt files,
+# so both have to be in the repo everyone clones. Nothing is ignored here any
+# more - the heading stays so nobody re-adds the rule by habit.
 
 # MongoDB VS Code extension scratch playgrounds. These are personal scratch
 # files and they hold whatever you last pasted into them - including, easily, a

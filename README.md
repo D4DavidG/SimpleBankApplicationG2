@@ -7,7 +7,7 @@ admin surface. Pure Python, standard library only. **Nothing to `pip install`.**
 python demo.py                     # walkthrough of every rule, no server needed
 python demo.py --step              # the same, paused between sections, for presenting
 python demo.py --step --mongo      # ... against Atlas, ending in a persistence proof
-python -m unittest -q              # 109 tests (14 Mongo ones skip without a cluster)
+python -m unittest -q              # 125 tests (14 Mongo ones skip without a cluster)
 python server.py                   # REST API on http://127.0.0.1:8000
 cd frontend && npm run dev         # React UI on http://localhost:5173 (needs the API up)
 python tools/export_postman.py     # regenerate postman_collection.json
@@ -45,7 +45,7 @@ list, and the conventions that will bite you. Frontend plan:
 
 | | |
 | --- | --- |
-| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 17 routes, role-based authorization, a persisted audit log, seed data, 109 tests, a MongoDB Atlas repository, a scripted demo, a generated Postman collection |
+| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 18 routes, role-based authorization, a persisted audit log, seed data, 125 tests, a MongoDB Atlas repository, a scripted demo, a generated Postman collection |
 | **Not here** | A database, a finished frontend, any third-party package on the Python side |
 
 The backend still imports nothing but the standard library, and
@@ -214,15 +214,16 @@ table is the index.
 
 ## 5. The API
 
-17 routes. The five the brief specifies are marked ★.
+18 routes. The five the brief specifies are marked ★.
 
 ### Auth
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/api/auth/register` | — | Create a customer, return a token |
+| `POST` | `/api/auth/register` | — | Create a user, return a token. An `adminCode` matching `BANK_ADMIN_CODE` makes them an ADMIN |
 | `POST` | `/api/auth/login` | — | Exchange email + password for a token |
 | `GET` | `/api/auth/me` | token | Who the current token belongs to |
+| `POST` | `/api/auth/me` | token | Edit your own name or email |
 | `GET` | `/api/health` | — | Liveness check |
 
 ### Accounts

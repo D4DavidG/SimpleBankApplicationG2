@@ -81,6 +81,31 @@ class BankStore:
     def all_users(self) -> list[User]:
         return sorted(self._users.values(), key=lambda u: u.user_id)
 
+    def update_user(self, user_id: int, name: str | None = None,
+                    email: str | None = None) -> User:
+        """Change a user's name, email, or both. Anything passed as None is left
+        alone, so a caller changing one field cannot blank the other by omission.
+
+        Role and password_hash are deliberately not reachable here. A profile
+        edit that could also set a role would be the privilege-escalation bug
+        that `api.register` exists to avoid, reintroduced one layer down.
+        """
+        user = self.get_user(user_id)
+        if email is not None:
+            key = email.strip().lower()
+            owner = self._email_index.get(key)
+            if owner is not None and owner != user_id:
+                raise EmailAlreadyUsed(f"email already registered: {key}")
+            # The index is keyed by email, so moving one means removing the old
+            # key as well as adding the new. Leaving the old behind would let the
+            # address the user just gave up keep resolving to them.
+            del self._email_index[user.email]
+            self._email_index[key] = user_id
+            user.email = key
+        if name is not None:
+            user.name = name.strip()
+        return user
+
     # ---- accounts ----
 
     def add_account(self, account: Account) -> Account:

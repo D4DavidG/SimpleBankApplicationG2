@@ -19,10 +19,16 @@ python server.py     # http://127.0.0.1:8000
 
 `npm run dev` proxies `/api` to `127.0.0.1:8000` (see `vite.config.js`), so the
 browser sees a single origin and there is nothing to configure. If you run the
-backend on another port, change the proxy target there.
+backend on another port:
 
-Log in with a seeded user: `aaron.forrester@example.com`. `python server.py`
-prints the shared password and the admin logins when it loads the demo data.
+```bash
+VITE_API_TARGET=http://127.0.0.1:9000 npm run dev          # bash
+$env:VITE_API_TARGET = "http://127.0.0.1:9000"; npm run dev  # PowerShell
+```
+
+Log in with a seeded user: `aaron.forrester@example.com`, password
+`BankDemo123!`. The seeded admins are `david.gusmao@example.com` and
+`bianca.alvarado@example.com`, same password.
 
 ---
 
@@ -32,16 +38,40 @@ prints the shared password and the admin logins when it loads the demo data.
 | --- | --- |
 | `src/lib/api.js` | One function per endpoint. Handles the `Authorization` header, JSON encoding and the `{ error }` failure shape. **Do not call `fetch` from a page.** |
 | `src/lib/money.js` | `formatCents`, `parseDollars`, `formatDate`. |
-| `src/context/AuthContext.jsx` | Login, register, logout, and the stored token. |
+| `src/context/AuthContext.jsx` | Login, register, logout, the stored token, the profile edit, and the account list. |
 | `src/context/auth-context.js` | The `useAuth()` hook. |
 | `src/components/RequireAuth.jsx` | Route guard: redirects to `/login`, or away from `/admin` for a non-admin. |
-| `src/components/Layout.jsx` | Nav bar and page frame. |
+| `src/components/Layout.jsx` | Nav bar and page frame. Turns red in admin context. |
+| `src/components/SecretInput.jsx` | A hidden field with an eye to reveal it. Used for passwords and the team code. |
 | `src/App.jsx` | Every route, in one table. |
 | `src/index.css` | Placeholder styles. Nobody is attached to these. |
 
-Working already: `/login`, `/register`, and `/` (the account list). They are
-plain but real, so the pages you build have live data and real account ids to
-work against.
+Working already: `/` (home), `/accounts`, `/login`, `/register` and `/profile`.
+They are plain but real, so the pages you build have live data and real account
+ids to work against.
+
+### Staff accounts
+
+There is one login page and one register page, for everybody. Staff are not a
+separate door — what makes somebody an admin is the role on their account, which
+the server re-checks on every admin request.
+
+The register form carries an optional **team code**. Leave it empty and you get
+an ordinary customer account. Fill it in correctly and you get an admin one.
+
+**The code is never checked in the browser.** It is sent to the server as
+`adminCode` and compared against `BANK_ADMIN_CODE` from `.env`. Grep the built
+bundle for the code and you will not find it, which is the whole point — a
+comparison written in JavaScript ships to the browser and stops nobody.
+
+A wrong code comes back as a 403 that creates no user at all, and the page then
+asks whether an ordinary account was what you meant. Saying yes sends the request
+again with no code in it; the rejected code is not stored, logged or resent. If
+`BANK_ADMIN_CODE` is not set on the server, admin registration is closed and
+every code is refused.
+
+The nav bar turns red once an admin is signed in, so the context is never in
+doubt.
 
 ## What is waiting to be claimed
 
@@ -81,6 +111,10 @@ to the number you were already holding is wrong the moment a second tab is open.
 `crypto.randomUUID()` per submission attempt. A double-clicked button then sends
 the same id twice and the second one is refused instead of moving the money
 again.
+
+**Call `refreshAccounts()` after moving money.** The account list lives in the
+auth context because the nav bar and the home page both read it. Skip the
+refresh and both keep showing the old balance.
 
 Two more worth knowing: read `availableForWithdrawal`, not `balance`, when
 offering an amount to withdraw — they hold the same number today and will not

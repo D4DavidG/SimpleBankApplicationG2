@@ -102,6 +102,25 @@ class BankService:
         with self.store.atomic():
             return self.store.add_user(name.strip(), email, role, password_hash)
 
+    def update_profile(self, actor: User, name: str | None = None,
+                       email: str | None = None) -> User:
+        """Change the caller's own name or email.
+
+        `actor` is the user from the token, and it is also the user being
+        edited - there is no user_id argument, so this method cannot be pointed
+        at somebody else's record no matter what the request body says. That is
+        the same reasoning as `create_account` taking its owner from the cookie.
+
+        Role is not a parameter. A profile edit that could set a role would be
+        the privilege-escalation hole that registration is careful to avoid.
+        """
+        if name is not None and not name.strip():
+            raise ValueError("name cannot be blank")
+        if email is not None and not email.strip():
+            raise ValueError("email cannot be blank")
+        with self.store.atomic():
+            return self.store.update_user(actor.user_id, name=name, email=email)
+
     def authenticate(self, email: str, password: str) -> User:
         """Return the user if the credentials are right, otherwise raise.
 

@@ -1,51 +1,79 @@
-/* The brief's Home Page (7.1): the logged-in user's accounts, and the way in to
- * every other screen. Functional so the rest of the pages have real account ids
- * to work against - the styling is nobody's final answer. */
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import * as api from '../lib/api'
+/* The home page, and the first thing anyone sees.
+ *
+ * It is public, so it has to be two pages in one: a landing page with the sign-in
+ * form for a visitor, and the account summary for somebody already signed in.
+ * That is one `if`, and it is the reason every other route can stay behind the
+ * auth guard - this is the only door.
+ */
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/auth-context'
 import { formatCents } from '../lib/money'
+import LoginForm from '../components/LoginForm'
+import AboutUs from '../components/AboutUs'
 
-export default function Home() {
-  const [accounts, setAccounts] = useState([])
-  const [error, setError] = useState(null)
-  const [loading, setLoading] = useState(true)
+function Landing() {
+  const navigate = useNavigate()
 
-  useEffect(() => {
-    api
-      .listAccounts()
-      .then((data) => setAccounts(data.accounts))
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
-  }, [])
+  return (
+    <>
+      <div className="hero">
+        <div className="promo card lift">
+          <h2>Start our new credit card with 10% APR!</h2>
+          <div className="promo-inner card">
+            <p>Start a new account at Simple Bank!</p>
+            <p>Representative APR 10%. Credit is subject to status.</p>
+            <Link className="apply lift" to="/register">Apply now</Link>
+          </div>
+        </div>
 
-  if (loading) return <p>Loading...</p>
-  if (error) return <p className="error">{error}</p>
+        <div className="signin card">
+          <LoginForm onDone={() => navigate('/')} />
+        </div>
+      </div>
+
+      <AboutUs />
+    </>
+  )
+}
+
+function Dashboard() {
+  const { user, accounts, isAdmin } = useAuth()
+
+  // Summing cents, never dollars. Integers stay exact; the divide by 100 happens
+  // once, inside formatCents, on the way to the screen.
+  const total = accounts.reduce((sum, account) => sum + account.balance, 0)
 
   return (
     <div>
-      <h1>Your accounts</h1>
-      {accounts.length === 0 ? (
-        <p>
-          You do not have an account yet. <Link to="/accounts/new">Open one</Link>.
-        </p>
-      ) : (
-        <ul className="account-list">
-          {accounts.map((account) => (
-            <li key={account.accountId} className="card">
-              <Link to={`/accounts/${account.accountId}`}>
-                <strong>{account.accountType}</strong> #{account.accountId}
-              </Link>
-              {/* Divide by 100 to display, never to calculate. */}
-              <span className="balance">{formatCents(account.balance)}</span>
-              {account.status === 'FROZEN' && <span className="badge">FROZEN</span>}
-            </li>
-          ))}
-        </ul>
-      )}
-      <p>
-        <Link to="/accounts/new">Open account</Link> · <Link to="/transfer">Transfer</Link>
-      </p>
+      <h1>Welcome back, {user.name}</h1>
+
+      <div className="card">
+        {accounts.length > 0 ? (
+          <>
+            <p className="hint">
+              Across {accounts.length} account{accounts.length === 1 ? '' : 's'}
+            </p>
+            <p className="total">{formatCents(total)}</p>
+          </>
+        ) : (
+          <p>You do not have a bank account yet.</p>
+        )}
+      </div>
+
+      <div className="actions">
+        {accounts.length > 0 && <Link className="action lift" to="/accounts">View accounts</Link>}
+        <Link className="action lift" to="/accounts/new">Open an account</Link>
+        {accounts.length > 0 && <Link className="action lift" to="/transfer">Transfer money</Link>}
+        <Link className="action lift" to="/profile">My details</Link>
+        {isAdmin && <Link className="action lift" to="/admin">Admin tools</Link>}
+      </div>
+
+      <AboutUs />
     </div>
   )
+}
+
+export default function Home() {
+  const { user } = useAuth()
+  return user ? <Dashboard /> : <Landing />
 }
