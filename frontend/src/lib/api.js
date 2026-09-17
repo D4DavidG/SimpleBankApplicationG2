@@ -15,7 +15,7 @@ const BASE = '/api' // the dev server proxies this to the Python backend
  *   localStorage    ticked    - survives closing the browser
  *   sessionStorage  unticked  - gone when the tab closes
  *
- * Either way the token itself expires an hour after it was issued, so remember
+ * Either way the token itself expires a week after it was issued, so remember
  * me buys a longer-lived *store*, not a longer-lived token; a 401 from any call
  * means it has gone stale and the user logs in again.
  *

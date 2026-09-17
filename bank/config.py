@@ -1,7 +1,7 @@
 """Configuration loading. Standard library only.
 
 Reads KEY=value lines from `.env` into the environment, so the server picks up
-MONGODB_URI, MONGODB_DB and BANK_SECRET without a third-party loader. A value
+MONGODB_URI, MONGODB_DB and BANK_ADMIN_CODE without a third-party loader. A value
 already set in the real environment wins over the file, which lets a one-off
 command override it.
 """

@@ -1,10 +1,10 @@
-"""Password hashing and session tokens. Standard library only.
+"""Password hashing and session token generation. Standard library only.
 
 Two jobs, both of which are easy to get dangerously wrong, so both live in one
 small file that can be read end to end in a minute.
 
     hash_password / verify_password   -> storing a password safely
-    issue_token / read_token          -> proving who you are on the next request
+    new_token                         -> the random string a session is named by
 
 WHY PBKDF2 AND NOT bcrypt
 -------------------------
@@ -20,27 +20,29 @@ means rewriting the bodies of two functions and nothing else. The one thing that
 is never acceptable, in any of these variants, is a bare SHA-256 of the password:
 a plain hash is fast, and fast is exactly the property an attacker wants.
 
-WHY A HAND-ROLLED TOKEN AND NOT A JWT
--------------------------------------
-Same reason: PyJWT is a third-party package. The token below is the same idea as
-a JWT reduced to its load-bearing parts - a JSON payload, base64url-encoded,
-followed by an HMAC-SHA256 signature over that payload. Because the server signs
-with a secret only it holds, a client can read the payload but cannot change it
-without invalidating the signature.
+WHY AN OPAQUE RANDOM TOKEN AND NOT A JWT
+----------------------------------------
+This file used to mint a signed token that carried the user id and role in its
+payload - a JWT reduced to its load-bearing parts, since PyJWT is a third-party
+package. It carried no state, which is its selling point and also its problem: a
+token that the server never recorded is a token the server cannot revoke, and
+logging out could only mean "the browser forgets it".
 
-The critical detail is in `read_token`: the signature is checked BEFORE the
-payload is trusted, using `hmac.compare_digest`. A normal `==` on two byte
-strings returns as soon as it finds a difference, so how long it takes leaks how
-much of a guess was correct. `compare_digest` takes the same time either way.
+The token is now a random string and nothing else. The user id and the expiry
+live in a `tokens` table alongside it, so a session is a row: it can be looked
+up, expired, listed, or deleted. See `BankService.issue_token` for the write and
+`BankService.validate_token` for the read.
+
+Because the token carries no meaning, there is nothing in it to forge. Guessing
+one means guessing 256 bits of `secrets` output, which is the same bet as
+guessing an HMAC key. What this does cost is a database read on every
+authenticated request - the honest trade for a session the server actually holds.
 """
 import base64
 import binascii
 import hashlib
 import hmac
-import json
-import os
 import secrets
-import time
 
 # Cost factor. Higher is slower, and slow is the entire point: it is what makes
 # guessing a stolen hash expensive. This is roughly the OWASP floor for
@@ -49,7 +51,17 @@ import time
 # created with.
 PBKDF2_ROUNDS = 600_000
 SALT_BYTES = 16
-TOKEN_TTL_SECONDS = 60 * 60  # 1 hour. Short-lived on purpose; see the README.
+
+# One week. Long for a bank, and chosen for a graded demo rather than for a real
+# one: an hour meant a token saved in Postman, or a tab left open over a weekend,
+# came back 401 in the middle of showing something. The token is revocable now -
+# it is a row - so length costs less than it did when nothing could cancel it.
+# A real deployment shortens this and adds a refresh; see README §13.
+TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
+# 32 bytes of randomness, base64url-encoded to 43 characters. Well past the 128
+# bits OWASP asks of a session id, and `secrets` is the cryptographic generator -
+# never `random`, whose output is reproducible from a few observed values.
+TOKEN_BYTES = 32
 
 
 # --------------------------------------------------------------------- helpers
@@ -117,63 +129,17 @@ def verify_password(password: str, encoded: str | None) -> bool:
 
 # ---------------------------------------------------------------------- tokens
 
-def new_secret() -> str:
-    """The server's signing key.
+def new_token() -> str:
+    """A fresh session token: `TOKEN_BYTES` of randomness, URL and header safe.
 
-    Read from the BANK_SECRET environment variable when it is set, otherwise a
-    fresh random value per process. The random default is the safe one for a demo
-    - no secret is ever committed - and it means restarting the server
-    invalidates every issued token, which is worth knowing before you wonder why
-    a saved Postman token stopped working.
+    Unpredictable is the only property required of it. It is not derived from the
+    user, the time, or anything else a caller could observe or guess - two logins
+    by the same person a millisecond apart produce unrelated strings, and neither
+    reveals anything about the other.
+
+    Uniqueness is not checked here, and does not need to be: a collision between
+    two 256-bit random values will not happen, and the token column is the
+    primary key, so if one ever did the insert would be refused rather than
+    quietly handing one person another person's session.
     """
-    return os.environ.get("BANK_SECRET") or secrets.token_urlsafe(32)
-
-
-def issue_token(user_id: int, role: str, secret: str,
-                ttl: int = TOKEN_TTL_SECONDS) -> str:
-    """Mint a signed session token for a user who has just proved who they are.
-
-    The payload carries the user id, their role, and an absolute expiry. It is
-    signed, not encrypted: anyone holding the token can read those three fields.
-    That is acceptable because none of them are secret; what matters is that they
-    cannot be *changed*. Nothing sensitive ever goes in here.
-    """
-    payload = {"sub": user_id, "role": role, "exp": int(time.time()) + ttl}
-    body = _b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-    signature = hmac.new(secret.encode("utf-8"), body.encode("ascii"),
-                         hashlib.sha256).digest()
-    return f"{body}.{_b64encode(signature)}"
-
-
-def read_token(token: str, secret: str) -> dict | None:
-    """Validate a token and return its payload, or None if it is not usable.
-
-    "Not usable" deliberately collapses several cases into one answer - malformed,
-    wrong signature, expired - because the caller's response is the same 401 in
-    every case, and distinguishing them out loud tells an attacker which part of
-    their forgery to fix.
-
-    Order matters: verify the signature FIRST, then parse. Parsing untrusted bytes
-    before checking that they came from us means acting on attacker-supplied
-    structure.
-    """
-    if not token or "." not in token:
-        return None
-    body, _, signature_b64 = token.partition(".")
-    expected = hmac.new(secret.encode("utf-8"), body.encode("ascii"),
-                        hashlib.sha256).digest()
-    try:
-        provided = _b64decode(signature_b64)
-    except (ValueError, binascii.Error):
-        return None
-    if not hmac.compare_digest(expected, provided):
-        return None  # signature does not match: forged or tampered with
-    try:
-        payload = json.loads(_b64decode(body))
-    except (ValueError, binascii.Error):
-        return None
-    if not isinstance(payload, dict) or "sub" not in payload:
-        return None
-    if payload.get("exp", 0) < time.time():
-        return None  # expired; the client must log in again
-    return payload
+    return secrets.token_urlsafe(TOKEN_BYTES)

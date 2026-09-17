@@ -11,6 +11,7 @@ What the in-memory store does in Python, this one hands to the database:
     ----------------------------  ------------------------------------------------
     itertools.count() ids         a counters collection, incremented atomically
     the email dict                a unique index on users.email
+    the token dict                tokens._id, so the token IS the primary key
     the set of client txn ids     a unique index on transactions.client_txn_id
     a lock around each change     a multi-document transaction, from atomic()
 
@@ -35,9 +36,9 @@ from .errors import (
     AccountNotFound, ConcurrentUpdate, DuplicateTransaction, EmailAlreadyUsed,
     StaleIdCounter, StorageUnavailable, UserNotFound,
 )
-from .models import CREDIT_TYPES, Account, Transaction, User, make_account
+from .models import CREDIT_TYPES, Account, AuthToken, Transaction, User, make_account
 
-COLLECTIONS = ("users", "accounts", "transactions", "counters", "audit_log")
+COLLECTIONS = ("users", "accounts", "transactions", "counters", "audit_log", "tokens")
 
 # MongoDB's error code for two transactions trying to change one document.
 WRITE_CONFLICT = 112
@@ -101,6 +102,11 @@ def _account_from(doc: dict) -> Account:
     return account
 
 
+def _token_from(doc: dict) -> AuthToken:
+    return AuthToken(token=doc["_id"], user_id=doc["user_id"],
+                     expires_at=doc["expires_at"])
+
+
 def _transaction_from(doc: dict) -> Transaction:
     return Transaction(txn_id=doc["_id"], account_id=doc["account_id"],
                        txn_type=doc["txn_type"], amount=doc["amount"],
@@ -125,6 +131,7 @@ class MongoStore:
         self._transactions = self._db["transactions"]
         self._counters = self._db["counters"]
         self._audit = self._db["audit_log"]
+        self._tokens = self._db["tokens"]
         # The session of the transaction running on this thread, if there is one.
         # Every read and write inside atomic() must go through it, or it would
         # happen outside the transaction and could not be rolled back.
@@ -158,6 +165,13 @@ class MongoStore:
             partialFilterExpression={"client_txn_id": {"$type": "string"}})
         self._index(self._transactions,
                     [("account_id", ASCENDING), ("_id", DESCENDING)], name="history")
+        # A TTL index: MongoDB deletes each token document once expires_at has
+        # passed, so expired sessions do not accumulate forever and nothing has
+        # to remember to sweep them. It is housekeeping and not the security
+        # check - validate_token refuses an expired session immediately, while
+        # the TTL monitor only runs about once a minute.
+        self._index(self._tokens, [("expires_at", ASCENDING)],
+                    expireAfterSeconds=0, name="token_ttl")
 
     @staticmethod
     def _index(collection, keys, **options) -> None:
@@ -336,6 +350,34 @@ class MongoStore:
         if doc is None:
             raise UserNotFound(f"no user with id {user_id}")
         return _user_from(doc)
+
+    # ---- session tokens ----
+
+    @_guarded
+    def add_token(self, token: AuthToken) -> AuthToken:
+        """Insert a session, with the token itself as `_id`.
+
+        Using `_id` rather than an indexed field is what makes the token the
+        primary key: MongoDB indexes `_id` uniquely and cannot be told not to,
+        so a duplicate is refused by the database rather than by a check
+        somebody has to remember to write.
+        """
+        try:
+            self._tokens.insert_one({
+                "_id": token.token, "user_id": token.user_id,
+                "expires_at": token.expires_at,
+            }, session=self._session)
+        except DuplicateKeyError:
+            # 256 bits of randomness collided, or the same token was inserted
+            # twice. Either way the safe answer is to refuse, not to overwrite
+            # somebody else's live session.
+            raise ValueError("token already issued") from None
+        return token
+
+    @_guarded
+    def find_token(self, token: str) -> AuthToken | None:
+        doc = self._tokens.find_one({"_id": token}, session=self._session)
+        return _token_from(doc) if doc is not None else None
 
     # ---- accounts ----
 

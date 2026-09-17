@@ -7,7 +7,7 @@ admin surface. Pure Python, standard library only. **Nothing to `pip install`.**
 python demo.py                     # walkthrough of every rule, no server needed
 python demo.py --step              # the same, paused between sections, for presenting
 python demo.py --step --mongo      # ... against Atlas, ending in a persistence proof
-python -m unittest -q              # 125 tests (14 Mongo ones skip without a cluster)
+python -m unittest -q              # 132 tests (16 Mongo ones skip without a cluster)
 python server.py                   # REST API on http://127.0.0.1:8000
 cd frontend && npm run dev         # React UI on http://localhost:5173 (needs the API up)
 python tools/export_postman.py     # regenerate postman_collection.json
@@ -45,7 +45,7 @@ list, and the conventions that will bite you. Frontend plan:
 
 | | |
 | --- | --- |
-| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed session tokens, a REST API with 18 routes, role-based authorization, a persisted audit log, seed data, 125 tests, a MongoDB Atlas repository, a scripted demo, a generated Postman collection |
+| **Is here** | Domain model, business rules, in-memory repository, password hashing, database-backed session tokens, a REST API with 18 routes, role-based authorization, a persisted audit log, seed data, 132 tests, a MongoDB Atlas repository, a scripted demo, a generated Postman collection |
 | **Not here** | A database, a finished frontend, any third-party package on the Python side |
 
 The backend still imports nothing but the standard library, and
@@ -185,7 +185,7 @@ table is the index.
 | [bank/errors.py](bank/errors.py) | The domain exceptions. Business concepts, not HTTP codes. Every class is empty on purpose — the type *is* the information. |
 | [bank/models.py](bank/models.py) | `User`, `Account`, `Transaction`. `Account.balance` is a read-only property; `SavingsAccount` overrides `minimum_balance` so the withdrawal rule is polymorphic rather than an `if`. |
 | [bank/store.py](bank/store.py) | The repository. Dictionaries and lists behind method names a database will later implement. Owns the id sequences (`AUTO_INCREMENT`), the email uniqueness index, and the `client_txn_id` set. |
-| [bank/security.py](bank/security.py) | Password hashing (PBKDF2-HMAC-SHA256, salted, 600,000 rounds) and signed session tokens (HMAC-SHA256 over a base64url JSON payload — a JWT reduced to its load-bearing parts). |
+| [bank/security.py](bank/security.py) | Password hashing (PBKDF2-HMAC-SHA256, salted, 600,000 rounds) and session token generation (256 opaque random bits; the session itself is a row in `tokens`). |
 | [bank/services.py](bank/services.py) | **Every business rule.** Register, authenticate, open account, deposit, withdraw, transfer, history, freeze, adjust, reconcile. Takes a lock around anything that moves money. |
 | [bank/serializers.py](bank/serializers.py) | Domain objects to JSON dicts. Money goes out as **integer cents**. `password_hash` goes out never. |
 | [bank/api.py](bank/api.py) | The controller: the route table, the token check, the role check, the error-to-status map, and the `http.server` plumbing at the bottom. |
@@ -352,28 +352,51 @@ exactly the property an attacker wants.
 
 ### Sessions
 
-An HMAC-SHA256 signed token: `base64url(payload).base64url(signature)`, where the
-payload is `{"sub": <user id>, "role": ..., "exp": ...}`. This is a JWT reduced to
-its load-bearing parts, for the same reason — PyJWT is a third-party package.
+A session is a **row**, not a claim. `secrets.token_urlsafe(32)` produces the
+token — 256 random bits, opaque, meaning nothing — and it is stored in a `tokens`
+table where the token itself is the primary key:
 
-The token is **signed, not encrypted**. Anyone holding it can read those three
-fields; what they cannot do is change them. Nothing sensitive goes in it.
+| token (PK) | user_id | expires_at |
+| --- | --- | --- |
+| `Yb3k…` (43 chars) | 7 | 2026-09-17 14:05:00Z |
 
-Three details that are easy to get wrong and are handled:
+`user_id` is deliberately **not** unique. One person signed in on a phone and a
+laptop holds two tokens, and the second login must not disturb the first.
 
-- The signature is verified **before** the payload is parsed, using
-  `hmac.compare_digest`. A normal `==` returns as soon as it finds a difference,
-  so how long it takes leaks how much of a forgery was correct.
-- The role is re-read from the store on every request, not trusted from the
-  token. The token is up to an hour old; if an admin has been demoted since, the
-  stored record is right.
-- Malformed, forged and expired all produce the same 401. Distinguishing them
-  tells an attacker which part of their forgery to fix.
+Register and login both call `BankService.issue_token`, which is the only thing
+that writes a row, so a session can only be created next to a successful
+credential check. Every protected route calls `BankService.validate_token`, which
+does the reverse: look the token up, refuse it if the row is missing or
+`expires_at` has passed, and return the `User` read fresh from storage.
 
-Tokens live for one hour. The signing secret comes from `$BANK_SECRET` if set,
-otherwise a fresh random value per process — so no secret is ever committed, at
-the cost of tokens not surviving a restart. The startup banner says which is in
-use, so a sudden 401 after a restart is not a mystery.
+Three details worth defending:
+
+- **Nothing in the token to forge.** It carries no user id and no role, so there
+  is no payload to edit and no signature to get wrong. Holding a valid token
+  means having been given one; guessing one means guessing 256 bits.
+- **The role is re-read on every request**, never carried by the token. An admin
+  demoted a minute ago is not still an admin for the rest of the week.
+- **Unknown, expired and orphaned all produce the same 401.** Saying which tells
+  somebody working through guesses how close they got.
+
+**Tokens live for one week** (`TOKEN_TTL_SECONDS`, the one constant to edit).
+That is long for a bank, and it is a demo decision rather than a security one: at
+an hour, a token saved in Postman or a tab left open over a weekend came back 401
+in the middle of showing something. It is affordable here because the session is
+a row — an hour was doing the work of revocation back when nothing could cancel
+a token, and now something can. A real deployment shortens it and adds a refresh
+lifecycle; that trade is in §13.
+
+Against MongoDB the rows outlive a restart, so a saved Postman token keeps
+working, and a TTL index on `expires_at` lets the database delete expired
+sessions by itself. In memory they go when the process does.
+
+**What this bought over the signed token it replaced:** a session that exists.
+A token the server never recorded is one it cannot cancel, list, or count —
+logging out could only ever mean "the browser forgets it". There is still no
+logout route (deleting the row is the whole implementation when one is wanted),
+but the table it would need is now there. The cost is one database read per
+authenticated request, which is the honest price of a session you can end.
 
 ### Ownership: the vulnerability in the brief as written
 
@@ -525,7 +548,7 @@ The service layer raises domain exceptions. `ERROR_STATUS` at the top of
 | --- | --- | --- |
 | `InvalidAmount` | **400** | Negative, zero, a float, a string, over the ceiling, not an int |
 | `ValueError` / `TypeError` | **400** | Missing field, unknown account type, admin reason too short |
-| *(no/invalid token)* | **401** | Missing, malformed, forged, or expired — one message for all four |
+| *(no/invalid token)* | **401** | Missing, never issued, expired, or orphaned — one message for all four |
 | *(failed login)* | **401** | 401 means "authenticate"; 403 means "authenticating again will not help" |
 | `NotAuthorized` | **403** | Authenticated, but lacks the role |
 | `AccountNotFound` | **404** | No such account, **or** somebody else's account |
@@ -675,7 +698,7 @@ during integration week instead of the afternoon it was introduced.
 | **A `seed.sql` for MySQL** | Written in `seed_data_bank_app.md` §3–4 but not extracted, and its amounts are in `DECIMAL`. If MySQL is chosen they become `BIGINT` cents — and §5, the MongoDB version, must not be run at all: it writes `Decimal128`, which this codebase refuses. |
 | **A frontend** | **Scaffolded.** `frontend/` is a React + Vite app with routing, login, register, the account list and a typed-up API layer in `src/lib/api.js`; the remaining screens are stubs, one file each, waiting to be claimed. See [frontend/README.md](frontend/README.md). The API is CORS-enabled for a dev server on another port, and money is serialized as integer cents, so the client divides by 100 to display and never has to undo a float. |
 | **httpOnly cookie sessions** | Tokens currently travel in an `Authorization` header, which a React client stores itself. A token in `localStorage` is readable by any injected script, so the cookie version is the better end state — it needs a real CSRF story and an exact-origin CORS policy, not `*`. |
-| **Refresh tokens** | One hour, then log in again. A refresh lifecycle and a session-timeout warning with an extend option (WCAG 2.2.1) belong with the frontend work. |
+| **Refresh tokens** | One week, then log in again. The long TTL is what stands in for a refresh lifecycle, and it is the wrong end state: a short token plus a refresh, and a session-timeout warning with an extend option (WCAG 2.2.1), belong with the frontend work. |
 | **Rate limiting on login** | PBKDF2 makes each guess cost ~0.6s, which is real but not a substitute for lockout or backoff. |
 | **The SQL script** | Already written and verified in the `seed_data_bank_app.md` planning document - section 3 (schema), section 4 (MySQL inserts), section 5 (MongoDB). Not yet extracted to a `.sql` file in this repo, because which database is graded is still open. |
 
