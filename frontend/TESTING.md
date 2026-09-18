@@ -63,13 +63,17 @@ the team settled on — see PLAN.md §2), `Transactions.jsx`.
 - [ ✅ ] Transfer to another person by name/search → money leaves your account, no way to see their account id
 <br></br>
 - [ ❓ ] Transfer to yourself / same account → rejected
+    
     *The account doesn't show up in the "send to" dropdown, ¿which I guess is the same thing?*
 <br></br>
 - [ ✅ ] Transfer more than available balance → rejected, no partial transfer
 - [ ✅ ] After any deposit/withdraw/transfer, the nav bar and Home page balance both update (no stale number) — `refreshAccounts()` check
-- [ ] Transaction history loads, paginates (next/prev works, doesn't show duplicate or skipped rows across pages)
-- [ ] Transaction history filter by type (deposit/withdrawal/transfer) works if present
-- [ ] Try to view another user's account by editing the URL's account id → 404, not the account's data, not a 403 that reveals it exists
+- [ ✅ ] Transaction history loads, paginates (next/prev works, doesn't show duplicate or skipped rows across pages)
+<br></br>
+- [ ❌ ] Transaction history filter by type (deposit/withdrawal/transfer) works if present
+    *Not present*
+<br></br>
+- [ ✅ ] Try to view another user's account by editing the URL's account id → 404, not the account's data, not a 403 that reveals it exists
 
 ---
 
