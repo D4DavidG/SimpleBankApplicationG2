@@ -3,8 +3,12 @@ import { Link, useParams } from 'react-router-dom'
 import * as api from '../lib/api'
 import { formatCents, formatDate } from '../lib/money'
 
-export default function Transactions() {
-  const { accountId } = useParams()
+/* Used two ways: as the page at /accounts/:id/transactions, where the id comes
+ * from the URL, and embedded in History.jsx, where it arrives as a prop. The
+ * prop wins when it is there, so the same table serves both. */
+export default function Transactions({ accountId: accountIdProp }) {
+  const params = useParams()
+  const accountId = accountIdProp ?? params.accountId
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
   const [items, setItems] = useState([])
@@ -85,7 +89,7 @@ export default function Transactions() {
         <p>No transactions yet.</p>
       ) : (
         <>
-          <table>
+          <table className="ledger">
             <thead>
               <tr>
                 <th>Date</th>
@@ -108,21 +112,19 @@ export default function Transactions() {
             </tbody>
           </table>
 
-          <div className="row" style={{ justifyContent: 'space-between', marginTop: '1rem' }}>
-            <button type="button" className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+          <div className="row pager">
+            <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
               Previous
             </button>
             <span className="hint">Page {page} of {totalPages}</span>
-            <button type="button" className="secondary" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+            <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
               Next
             </button>
           </div>
         </>
       )}
 
-      <p style={{ marginTop: '1rem' }}>
-        <Link to={`/accounts/${accountId}`}>Back to account</Link>
-      </p>
+      <Link className="back-link" to={`/accounts/${accountId}`}>Back to account</Link>
     </div>
   )
 }

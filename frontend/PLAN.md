@@ -12,85 +12,61 @@ past that, it is doing too much.
 
 ## 1. Where we are
 
-Working: home, the account list, account detail, open account, the
-transaction history, login, register, profile and the admin console. Routing,
-the auth context, the route guard and the API layer are done and tested against
-the live backend. A 401 from any call now ends the session in one place — see
-the README.
+Every page in §2 is built — nothing in `src/pages/` is a stub any more, and
+`components/Stub.jsx` is now unused. Routing, the auth context, the route guard
+and the API layer are done and tested against the live backend. A 401 from any
+call ends the session in one place — see the README.
 
-Stubbed: three pages, one file each in `src/pages/`, each carrying a `TODO`
-comment that names the API call it needs and the rules that apply. Read §2 before
-starting any of them: `TransactionMenu.jsx` already does all three.
+What is left is listed in §4, not here.
 
 ## 2. The pages
 
-| # | Route | File | Brief | Owner | Done |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `/` | `Home.jsx` | 7.1 | David | ✅ public landing + dashboard |
-| 2 | `/accounts` | `Accounts.jsx` | 7.1 | David | ✅ |
-| 3 | `/login` | `Login.jsx` | bonus | David | ✅ |
-| 4 | `/register` | `Register.jsx` | 7.2 | David | ✅ |
-| 5 | `/profile` | `Profile.jsx` | — | David | ✅ |
-| 6 | `/accounts/new` | `OpenAccount.jsx` | 7.2 | Daniel | ✅ |
-| 7 | `/accounts/:id` | `AccountDetails.jsx` | 7.3 | | ✅ |
-| 8 | `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | | ⚠️ see below |
-| 9 | `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | | ⚠️ see below |
-| 10 | `/accounts/:id/transactions` | `Transactions.jsx` | 7.6 | | ✅ see §2a |
-| 11 | `/transfer` | `Transfer.jsx` | bonus | | ⚠️ see below |
-| 12 | `/admin` | `Admin.jsx` | — | Daniel | ✅ |
-| — | *(temporary)* `/transactions` | `TransactionMenu.jsx` | 7.4/7.5 + bonus | | ✅ built |
+Every screen in brief §7 now exists.
 
-Put your name in the Owner column and in the `owner` prop on the page's `<Stub>`.
+| Route | File | Brief | Done |
+| --- | --- | --- | --- |
+| `/` | `Home.jsx` | 7.1 | ✅ landing + dashboard |
+| `/accounts` | `Accounts.jsx` | 7.1 | ✅ |
+| `/accounts/new` | `OpenAccount.jsx` | 7.2 | ✅ |
+| `/register` | `Register.jsx` | 7.2 | ✅ |
+| `/login` | `Login.jsx` | bonus | ✅ |
+| `/profile` | `Profile.jsx` | — | ✅ |
+| `/accounts/:id` | `AccountDetails.jsx` | 7.3 | ✅ |
+| `/deposit`, `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | ✅ |
+| `/withdraw`, `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | ✅ |
+| `/history`, `/accounts/:id/transactions` | `History.jsx`, `Transactions.jsx` | 7.6 | ✅ |
+| `/transfer` | `Transfer.jsx` | bonus | ✅ |
+| `/admin` | `Admin.jsx` | — | ✅ |
 
-**§2a — a known bug in `Transactions.jsx`.** Its "Resulting balance" column is
-derived in the browser by walking backwards from the current balance. That is
+`TransactionMenu.jsx` is the shared money form. Deposit and Withdraw render it
+with `fixedKind`, which is why the amount parsing, the `clientTxnId` and the
+"render the balance the server returned" rule exist once rather than three times.
+
+**A known bug in `Transactions.jsx`, still open.** Its "Resulting balance" column
+is derived in the browser by walking backwards from the current balance. That is
 right on page 1 and **wrong on every later page**, which restarts from the live
 balance instead of from where the previous page ended. It is also the one place
 the codebase breaks its own "never compute a balance in the browser" rule.
 Cheapest fix is to drop the column; the honest one is to have the server send a
 running balance. Unclaimed.
 
-**⚠️ `TransactionMenu.jsx` already does deposit, withdraw and transfer** — one
-component, one form, switched by a `kind` dropdown. So stubs 8, 9 and 11 are
-probably not three pages any more. Somebody needs to decide which, and it is not
-a decision to make silently:
+**Naming and colour live in `src/lib/accounts.js`.** `accountLabel` gives
+`Checking...23`; `accountTone` gives the colour class. Both are imported rather
+than re-derived, because an account that is teal in one list and violet in
+another is worse than one with no colour at all.
 
-- **Keep one screen.** Drop the three stubs and their routes; put the menu on the
-  account detail page. Fewest lines, and the brief's 7.4 and 7.5 are then two
-  states of one screen rather than two pages.
-- **Keep three routes.** Each renders `TransactionMenu` with the kind preset.
-  Matches the brief's wording literally, costs three thin files.
+**Credit accounts** are always blue with yellow type and a yellow glow, outside
+the six-colour rotation, because they are a different product rather than
+another account of the same kind. Note the backend limit: `CreditAccount` cannot
+go negative, so today it behaves exactly like a checking account. Making it a
+real credit line means a credit limit and a negative `minimum_balance`, and its
+docstring says where to start.
 
-Either is defensible. Pick one before anyone starts building 8, 9 or 11,
-because both of those people would otherwise be rewriting work that exists.
+## 3. Adding a page
 
-`TransactionMenu` takes its account as a **prop** and never fetches it, so
-whoever wires it in owns fetching the account and calling `refreshAccounts()`
-afterwards — see §3. It is currently reachable at `/transactions` on a temporary
-public route with a hard-coded account, marked for deletion in `App.jsx`.
-
-Note it is **not** `Transactions.jsx` (10), which is the history table.
-
-**Styling is David's, and it comes last.** The shared tokens in `src/index.css`
-are already set; leave the visual pass on your page until it works, then say so
-and it gets picked up. Use the existing classes (`card`, `form`, `error`,
-`hint`, `balance`, `badge`) rather than inventing new ones, and the pass will be
-mostly free.
-
-**Suggested split for what is genuinely still open:** 7 (account detail, which
-is where the transaction menu probably lands), 10 (history table, the one page
-with pagination), 12 (admin), and 6 (open account) wherever it fits.
-
-## 3. Build order
-
-0. **Settle the TransactionMenu question above first.** Everything else in this
-   list assumes an answer to it.
-1. **Account detail (7).** Mostly display, and it is the natural home for the
-   transaction menu, so wiring the two together finishes three of the brief's
-   five core capabilities at once.
-2. **Transactions (10).** The history table, and the only page with pagination.
-3. **Open account (6).** A two-field form.
-4. **Admin (12).** Bonus surface.
+The build order that used to be here is done — every page it listed exists, and
+the TransactionMenu question it waited on was answered by making that component
+the shared money form (§2).
 
 Adding a page means a file in `src/pages/` and a line in `src/App.jsx`. Nothing
 else.

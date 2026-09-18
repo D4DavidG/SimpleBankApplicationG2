@@ -99,7 +99,7 @@ Open Account
                  transaction, so the ledger still adds up to the balance.
     INPUT
         cookie
-        accountType ("CHECKING" or "SAVINGS")
+        accountType ("CHECKING", "SAVINGS" or "CREDIT")
         openingBalance (optional, defaults to 0, integer cents)
         userId (optional, admin only)
     OUTPUT
@@ -112,6 +112,29 @@ Open Account
         the userId you named does not exist
         the account would belong to an admin - an admin does not hold accounts,
             so this is refused even when an admin asks for it for themselves
+
+Search People
+    PATH: /api/users/search?q=ben
+    VERB: GET
+    DESCRIPTION: people the caller could send money to, matched on name or
+                 email, case-insensitively. The caller is left out of their own
+                 results. A query shorter than two characters returns an empty
+                 list rather than most of the roster, and the answer is capped
+                 at ten.
+    INPUT
+        cookie
+        q (query string)
+    OUTPUT
+        List of UserView
+    FAILURE STATES:
+        invalid cookie
+    NOTES:
+        This is a customer-facing directory, and a real bank does not have one:
+        it is a list of its customers, and you pay an account number or a payee
+        you have already confirmed. It exists because a training project needs
+        somebody to pay and account numbers are not memorable. It would be the
+        first thing to remove if this were ever real.
+
 
 Transaction History
     PATH: /api/accounts/{accountId}/transactions
@@ -206,7 +229,13 @@ Transfer
     INPUT
         cookie
         fromAccountId
-        toAccountId
+        toAccountId  (the destination account)
+        toUserId     (instead of toAccountId - the destination PERSON, whose
+                      primary account the server resolves. Exactly one of the
+                      two must be sent; sending both is a 400, because a
+                      mismatched pair would move money somewhere the caller did
+                      not name. This is what lets a client offer a name to pick
+                      rather than asking somebody to know an account number.)
         amount (integer cents)
         clientTxnId (optional)
     OUTPUT
@@ -219,6 +248,8 @@ Transfer
         invalid cookie
         you do not own the source account, or it does not exist
         the destination account does not exist
+        neither or both of toAccountId and toUserId were sent
+        the toUserId you named does not exist, or holds no active account
         source and destination are the same account
         either account is frozen
         insufficient funds in the source account
@@ -452,7 +483,7 @@ AccountView (as the server actually sends it)
         integer accountId,
         integer userId,
         string userName,                (only when the owner is to hand)
-        string accountType,             ("CHECKING" or "SAVINGS")
+        string accountType,             ("CHECKING", "SAVINGS" or "CREDIT")
         string status,                  ("ACTIVE" or "FROZEN")
         integer balance,                (cents - 123456 is 1,234.56)
         integer availableForWithdrawal, (cents - balance minus any minimum)

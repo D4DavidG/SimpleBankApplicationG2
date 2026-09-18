@@ -989,6 +989,30 @@
             },
             "description": "No token required. Confirms the server is up, and says nothing else - a route that needs no token should not describe the bank's data."
           }
+        },
+        {
+          "name": "TODO: GET /api/users/search",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/search",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "search"
+              ]
+            },
+            "description": "This route has no example yet. Add one to EXAMPLES in tools/export_postman.py."
+          }
         }
       ]
     }

@@ -10,6 +10,7 @@
 import { useState } from 'react'
 import * as api from '../lib/api'
 import { formatCents, parseDollars } from '../lib/money'
+import { accountLabel } from '../lib/accounts'
 
 /* The three actions, as data rather than as three copies of the same JSX.
  *
@@ -61,7 +62,11 @@ const KINDS = {
  *
  * `?.()` below means "call it only if it was passed", so a caller that does not
  * care can leave it off. */
-export default function TransactionMenu({ account, onAccountChange }) {
+/* `fixedKind` pins this to one action and hides the picker, which is what the
+ * dedicated Deposit and Withdraw pages want - the page title has already said
+ * which one it is, so a dropdown offering to change it is a second answer to a
+ * question nobody asked. Left off, the picker behaves as before. */
+export default function TransactionMenu({ account, onAccountChange, fixedKind }) {
   /* Which action is selected. Everything below the picker is derived from it,
    * so switching the dropdown switches the form with no other bookkeeping.
    *
@@ -70,7 +75,7 @@ export default function TransactionMenu({ account, onAccountChange }) {
    * works is not somewhere people look for a dropdown. Starting empty makes
    * choosing the action the first thing you do, which is the only way the other
    * two get discovered. */
-  const [kind, setKind] = useState('')
+  const [kind, setKind] = useState(fixedKind ?? '')
 
   /* Both inputs are kept as the raw text the user typed, not as numbers.
    * Storing a number would fight the user: "2." and "" are both states you have
@@ -180,11 +185,12 @@ export default function TransactionMenu({ account, onAccountChange }) {
       {/* ------------------------------------------- the account and the picker */}
       <div className="card menu-head">
         <div>
-          <strong>{account.accountType}</strong> #{account.accountId}
+          <strong>{accountLabel(account)}</strong>
           {/* Divide by 100 to display, never to calculate. */}
           <div className="balance-large">{formatCents(account.balance)}</div>
         </div>
 
+        {!fixedKind && (
         <label className="kind-picker">
           Action
           {/* A controlled input: React owns the value. The value comes from
@@ -208,6 +214,7 @@ export default function TransactionMenu({ account, onAccountChange }) {
             ))}
           </select>
         </label>
+        )}
       </div>
 
       {/* --------------------------------------------------------- the form */}

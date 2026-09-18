@@ -24,11 +24,11 @@ feature nobody on the team can walk a room through is worse than no feature.
 
 | Layer | State |
 | --- | --- |
-| Domain, services, repository | Done. 144 tests, 16 skip without a Mongo cluster. |
-| REST API | Done. 18 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
-| Auth | Done. Register, login, `/api/auth/me`, signed JWTs, ADMIN role. |
+| Domain, services, repository | Done. 164 tests, 16 skip without a Mongo cluster. |
+| REST API | Done. 19 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
+| Auth | Done. Register, login, `/api/auth/me`, stored tokens, ADMIN role. |
 | Database | Done for MongoDB Atlas. In-memory fallback. **MySQL not started.** |
-| Frontend | Routing, auth, API layer, and 11 real pages (home, accounts, account detail, transactions, open account, transaction menu, login, register, profile, admin). 3 stubs left: deposit, withdraw, transfer. |
+| Frontend | Every screen in brief §7 is built. Routing, auth, API layer, credit accounts, pay-a-person, and the admin console. No stubs left. |
 
 Run it: `python server.py` in one terminal, `cd frontend && npm run dev` in
 another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
@@ -39,12 +39,11 @@ another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
 
 ### Must ship — these are graded
 
-- [ ] **Decide what happens to `TransactionMenu.jsx`.** It already does deposit,
-      withdraw and transfer in one component, which overlaps three of the stubs
-      below. Two people could otherwise build work that exists. Options and the
-      reasoning: [frontend/PLAN.md](frontend/PLAN.md) §2.
-- [ ] **Frontend pages.** The remaining stubs in `frontend/src/pages/`, one file
-      each. Plan and owner table: [frontend/PLAN.md](frontend/PLAN.md).
+- [x] **Decide what happens to `TransactionMenu.jsx`.** Settled: it is the
+      shared form. `Deposit.jsx` and `Withdraw.jsx` render it with `fixedKind`,
+      so the three actions share one set of money rules.
+- [x] **Frontend pages.** All six screens in brief §7 exist, plus transfer,
+      profile and admin. Owner table: [frontend/PLAN.md](frontend/PLAN.md).
 - [ ] **SQL script.** A submission requirement and it does not exist in the repo.
       The schema and inserts are written and verified in the team's
       `seed_data_bank_app.md` planning doc, §3–4. Extract to `sql/schema.sql`
@@ -151,6 +150,12 @@ claiming you are signed in while every request fails. Login and register are
 exempt, because a 401 there means "wrong password", not "your session ended". Do
 not add per-page 401 handling; it is done once in `request()`.
 
+**Account numbers stay out of the interface.** They are database keys. A
+transfer names a *person* (`toUserId`) and the server resolves it to their
+primary account, so the browser is never told anyone else's account ids. The id
+still lives in the URL, which is fine - it is checked for ownership on every
+request.
+
 **All backend code is standard library only.** `requirements.txt` exists for
 pymongo and nothing else. Keep it that way.
 
@@ -163,5 +168,5 @@ pymongo and nothing else. Keep it that way.
 | `bank/` | The backend. `api.py` has the route table; `services.py` has the rules. |
 | `APIDocs.txt` | The API contract. The frontend's source of truth. |
 | `frontend/` | React + Vite. See its README and PLAN. |
-| `test_*.py` | 144 tests. `python -m unittest -q`. |
+| `test_*.py` | 164 tests. `python -m unittest -q`. |
 | `tools/check_mongo.py` | Run when Atlas will not connect. It explains what failed. |

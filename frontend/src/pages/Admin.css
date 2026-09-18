@@ -119,3 +119,36 @@
   display: block;
   color: var(--muted); /* 5.84:1 on surface */
 }
+
+/* ------------------------------------------------- the reconciliation banner
+ *
+ * This is the one claim on the page that matters: balance == sum(ledger) for
+ * every account. It started as .hint at 0.85rem - the size the rest of the app
+ * uses for small print, and far too quiet for the sentence the demo turns on.
+ *
+ * 1.15rem: bigger than the small print it started as, and one step below the
+ * h1 at 1.4rem, so the heading still reads as the heading. 2.35rem was tried
+ * and was too loud - a status line larger than the page title.
+ *
+ * The colour does not carry the state on its own: the words "Balanced" and
+ * "Not balanced" lead the sentence either way.
+ *
+ * SCOPED UNDER .admin ON PURPOSE, and not as a tidiness thing. The banner also
+ * wears .hint, and index.css sets `.hint { font-size: 0.85rem }`. One class
+ * against one class is a specificity tie, which CSS breaks by source order -
+ * and index.css is emitted after this file, so a bare `.admin-reconciliation`
+ * loses the font-size and keeps only what it does not share. The symptom is a
+ * banner that takes the colour asked for and none of the size. */
+.admin .admin-reconciliation {
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0.75rem 0 1.25rem;
+}
+
+/* .hint is muted grey, which reads as washed out at this size and weight, so
+ * the balanced case takes the body colour instead: 16.91:1 on the surface.
+ * The unbalanced case keeps .error's red. */
+.admin .admin-reconciliation.hint {
+  color: var(--text);
+}

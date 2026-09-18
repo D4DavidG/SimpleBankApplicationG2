@@ -1,8 +1,7 @@
 # Simple Bank Application: frontend
 
-React + Vite. Plain JavaScript, plain CSS, no UI library. This is the scaffolding
-only: routing, authentication and the API layer work, and the pages themselves
-are stubs waiting to be claimed.
+React + Vite. Plain JavaScript, plain CSS, no UI library. Routing,
+authentication and the API layer work, and every screen in brief §7 is built.
 
 ```bash
 npm install          # once
@@ -46,11 +45,11 @@ Log in with a seeded user: `aaron.forrester@example.com`, password
 | `src/App.jsx` | Every route, in one table. |
 | `src/index.css` | Placeholder styles. Nobody is attached to these. |
 
-Working already: `/` (home), `/accounts`, `/accounts/:id`, `/accounts/new`,
-`/accounts/:id/transactions`, `/login`, `/register`, `/profile` and `/admin`.
-They are plain but real, so the pages you build have live data and real account
-ids to work against. Still stubbed: deposit, withdraw and transfer — see PLAN.md
-§2 before starting one, because `TransactionMenu.jsx` already does all three.
+Every route in the table below is built and works against live data. Deposit,
+withdraw and transfer all render the one shared money form, `TransactionMenu.jsx`
+— see PLAN.md §2 before changing any of them, because the amount parsing, the
+`clientTxnId` and the "render the balance the server returned" rule live there
+once rather than three times.
 
 ### When the token stops working
 
@@ -90,22 +89,18 @@ every code is refused.
 The nav bar turns red once an admin is signed in, so the context is never in
 doubt.
 
-## What is waiting to be claimed
+## The pages
 
-Pages, owners and build order: **[PLAN.md](PLAN.md)**.
-
-One page per file in `src/pages/`. Each stub carries a `TODO` comment naming the
-API call it needs and the rules that apply to it. Put your name in the `owner`
-prop on the `<Stub>` when you take one, and delete the whole stub when you build
-the real thing.
+One page per file in `src/pages/`. All of these are built; the current table,
+with what is still open, is in **[PLAN.md](PLAN.md)**.
 
 | Route | File | Brief |
 | --- | --- | --- |
 | `/accounts/new` | `OpenAccount.jsx` | 7.2 |
 | `/accounts/:accountId` | `AccountDetails.jsx` | 7.3 |
-| `/accounts/:accountId/deposit` | `Deposit.jsx` | 7.4 |
-| `/accounts/:accountId/withdraw` | `Withdraw.jsx` | 7.5 |
-| `/accounts/:accountId/transactions` | `Transactions.jsx` | 7.6 |
+| `/deposit`, `/accounts/:accountId/deposit` | `Deposit.jsx` | 7.4 |
+| `/withdraw`, `/accounts/:accountId/withdraw` | `Withdraw.jsx` | 7.5 |
+| `/history`, `/accounts/:accountId/transactions` | `History.jsx`, `Transactions.jsx` | 7.6 |
 | `/transfer` | `Transfer.jsx` | bonus |
 | `/admin` | `Admin.jsx` | admin surface |
 

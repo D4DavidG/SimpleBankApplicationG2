@@ -6,6 +6,7 @@ No pytest, no database, no server. Every test is a function call, which is the
 payoff for keeping the rules in services.py free of framework imports.
 """
 import unittest
+from datetime import datetime, timedelta, timezone
 from dataclasses import FrozenInstanceError
 
 from bank import (
@@ -251,10 +252,33 @@ class TestAdmin(BankTestCase):
                         "Reversing a fee misposted on 2026-09-10", self.david)
         self.assertEqual(self.a_checking.balance, 6250)
         self.assertEqual(len(self.svc.audit), 1)
-        actor, action, account_id, reason = self.svc.audit[0]
+        actor, action, account_id, reason, created_at = self.svc.audit[0]
         self.assertEqual(actor, self.david.user_id)
         self.assertEqual(action, "ADJUST_CREDIT")
         self.assertIn("misposted", reason)
+        self.assertEqual(account_id, self.a_checking.account_id)
+        # Timezone-aware and recorded now. A naive datetime here would be read as
+        # local time by a client and shift the whole log by the UTC offset.
+        self.assertIsNotNone(created_at.tzinfo)
+        self.assertLess(datetime.now(timezone.utc) - created_at, timedelta(seconds=30))
+
+    def test_a_credit_account_can_be_read_back(self):
+        """A type the factory does not know makes every read of the account list
+        raise, which takes out a whole page rather than one row. CREDIT is in the
+        shared database already, so the factory has to know it."""
+        from bank.models import make_account
+        account = make_account("CREDIT", user_id=self.aaron.user_id)
+        self.assertEqual(account.account_type, "CREDIT")
+
+    def test_a_credit_account_still_cannot_go_negative_yet(self):
+        """Pinning the limitation rather than leaving it implied: this is not a
+        real credit account until Account._apply takes its floor from
+        minimum_balance. See CreditAccount's docstring."""
+        from bank.models import make_account
+        account = make_account("CREDIT", user_id=self.aaron.user_id)
+        self.assertEqual(account.minimum_balance, 0)
+        with self.assertRaises(InsufficientFunds):
+            account._apply(-100)
 
     def test_adjustment_requires_a_written_reason(self):
         with self.assertRaises(ValueError):
@@ -331,3 +355,33 @@ class TestInvariants(BankTestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestCreditAccountType(unittest.TestCase):
+    """The third account type. Behaves like checking today - see CreditAccount."""
+
+    def setUp(self):
+        self.svc = BankService(BankStore())
+        self.user = self.svc.register_user("Cred Holder", "cred@example.com",
+                                           password="Pw123456!")
+
+    def test_can_be_opened(self):
+        account = self.svc.open_account(self.user, "CREDIT", 5000)
+        self.assertEqual(account.account_type, "CREDIT")
+        self.assertEqual(account.balance, 5000)
+
+    def test_lowercase_is_accepted_like_the_others(self):
+        self.assertEqual(self.svc.open_account(self.user, "credit").account_type,
+                         "CREDIT")
+
+    def test_an_unknown_type_is_still_refused(self):
+        with self.assertRaises(ValueError):
+            self.svc.open_account(self.user, "MORTGAGE")
+
+    def test_it_cannot_go_negative_yet(self):
+        """The documented limit of this type: it is not a real credit line. If
+        this test ever starts failing, CreditAccount grew a credit limit and the
+        docstring needs to stop saying it has not."""
+        account = self.svc.open_account(self.user, "CREDIT", 1000)
+        with self.assertRaises(InsufficientFunds):
+            self.svc.withdraw(account.account_id, 1001, self.user)

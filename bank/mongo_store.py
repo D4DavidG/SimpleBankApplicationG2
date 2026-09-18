@@ -29,6 +29,8 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+import re
+
 from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.errors import (
     ConnectionFailure, DuplicateKeyError, OperationFailure, PyMongoError,
@@ -311,6 +313,25 @@ class MongoStore:
         return [_user_from(doc) for doc in cursor]
 
     @_guarded
+    def search_users(self, query: str, limit: int = 10) -> list[User]:
+        """See BankStore.search_users. Same contract, done by the database.
+
+        The query is escaped before it becomes a regex. Without that, a user
+        typing "a.*" or "(" is writing the pattern themselves - at best a
+        confusing result, at worst a pattern that takes the database a very long
+        time to evaluate.
+        """
+        needle = (query or "").strip()
+        if not needle:
+            return []
+        pattern = {"$regex": re.escape(needle), "$options": "i"}
+        cursor = self._users.find(
+            {"$or": [{"name": pattern}, {"email": pattern}]},
+            session=self._session,
+        ).sort("_id", ASCENDING).limit(limit)
+        return [_user_from(doc) for doc in cursor]
+
+    @_guarded
     def update_user(self, user_id: int, name: str | None = None,
                     email: str | None = None) -> User:
         """Change a user's name, email, or both. See BankStore.update_user for
@@ -465,5 +486,5 @@ class MongoStore:
     def audit_entries(self) -> list[tuple]:
         """Oldest first, in the same tuple shape as the in-memory store."""
         cursor = self._audit.find({}, session=self._session).sort("_id", ASCENDING)
-        return [(doc["actor_user_id"], doc["action"], doc["account_id"], doc["reason"])
-                for doc in cursor]
+        return [(doc["actor_user_id"], doc["action"], doc["account_id"], doc["reason"],
+                 doc["created_at"]) for doc in cursor]
