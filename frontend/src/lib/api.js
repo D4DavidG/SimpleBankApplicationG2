@@ -8,7 +8,26 @@
  * Amounts are integer cents, in and out. See src/lib/money.js.
  */
 
-const BASE = '/api' // the dev server proxies this to the Python backend
+/* Where the backend is.
+ *
+ * '/api' - a path, not a URL - is the default and is what both the dev server
+ * and a correctly configured CloudFront want: the browser talks to one origin,
+ * something in front of it routes /api onwards, and there is no CORS and no
+ * build-time URL to get wrong. In dev that router is the Vite proxy in
+ * vite.config.js; in production it is a CloudFront cache behaviour on /api/*.
+ *
+ * VITE_API_BASE overrides it with an absolute URL, for the deployment that
+ * calls the Lambda directly rather than through CloudFront:
+ *
+ *   VITE_API_BASE=https://abc123.execute-api.eu-west-1.amazonaws.com npm run build
+ *
+ * It is read at BUILD time, not run time - Vite substitutes the literal - so
+ * changing it means rebuilding and re-uploading dist/. That is the reason to
+ * prefer the default: the CloudFront route can be repointed without a rebuild.
+ */
+const BASE = import.meta.env.VITE_API_BASE
+  ? `${import.meta.env.VITE_API_BASE.replace(/\/$/, '')}/api`
+  : '/api'
 
 /* Where the token is kept is what "Remember me" actually changes:
  *
