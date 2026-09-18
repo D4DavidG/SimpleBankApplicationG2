@@ -56,9 +56,7 @@ the team settled on), `Transactions.jsx`.
 - [ ✅ ] Withdraw an amount ≤ available balance → succeeds, balance updates
 - [ ✅ ] Withdraw more than the balance → "insufficient funds" error, balance unchanged
 <br></br>
-- [ ❌ ] Deposit/withdraw both use a confirm step before submitting, not a single blind submit
-
-    *There is only the one "Submit deposit" button.*
+- [ ] Deposit/withdraw both use a confirm step before submitting, not a single blind submit
 <br></br>
 - [ ✅ ] Transfer to another person by name/search → money leaves your account, no way to see their account id
 <br></br>

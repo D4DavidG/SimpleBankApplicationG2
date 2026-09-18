@@ -56,10 +56,10 @@ another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
 
 ### Should ship
 
-- [ ] **Confirm step on deposit and withdraw.** WCAG 3.3.4 asks that a money
-      transaction be reversible, checked, or confirmed. A review-then-confirm
-      step is the cheap way to satisfy it and prevents the app's most likely
-      user error. Two states in one component, not a second page.
+- [x] **Confirm step on deposit and withdraw.** WCAG 3.3.4 asks that a money
+      transaction be reversible, checked, or confirmed. Done as
+      `components/ConfirmTransaction.jsx`, rendered by `TransactionMenu.jsx`
+      and `Transfer.jsx` - two states in one component, not a second page.
 - [ ] **Validation messages on the UI.** On the brief's bonus list. Errors tied
       to their field with `aria-describedby`, never signalled by border colour
       alone.
