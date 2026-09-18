@@ -7,7 +7,22 @@
  *
  * Newest first. The server returns them oldest first, which is the right order
  * for a ledger and the wrong one for a column you are watching - after an
- * action you want to see it without scrolling. */
+ * action you want to see it without scrolling.
+ *
+ * Only the five most recent are shown. The log never shrinks - nothing removes a
+ * row, by design - so an unbounded list is one that gets longer every day and is
+ * eventually the whole page. Five is what you want after doing something: did
+ * that land. Anything older, you are looking for rather than glancing at, and
+ * that is what the search is.
+ *
+ * The search filters in the browser rather than asking the server. The whole log
+ * is already here, so it is instant and there is no endpoint to add. If this ever
+ * holds thousands of rows, that stops being true and the filter moves server-side
+ * behind a `q` parameter - this component is where that starts.
+ */
+import { useMemo, useState } from 'react'
+
+const DEFAULT_SHOWN = 5
 
 /* The server sends UTC; an admin in the office thinks in Eastern. Built once at
  * module level rather than per row, because constructing a DateTimeFormat is the
@@ -32,31 +47,82 @@ function easternTime(iso) {
   return Number.isNaN(when.getTime()) ? null : EASTERN.format(when)
 }
 
+/* Everything on the row is searchable, including the account and actor numbers,
+ * because "31" is how you look up what happened to an account and "ADJUST" is
+ * how you find every correction. Built per entry once and reused for every
+ * keystroke. */
+function haystack(entry) {
+  return [
+    entry.action,
+    entry.reason,
+    `account #${entry.accountId}`,
+    `${entry.accountId}`,
+    `user #${entry.actorUserId}`,
+    `${entry.actorUserId}`,
+    easternTime(entry.createdAt) ?? '',
+  ].join(' ').toLowerCase()
+}
+
 // `entries` defaults to empty: a caller that has not loaded them yet, or cannot,
 // should get the empty state rather than a crash. This component's whole job is
 // to render a list, and no list is a short one.
 export default function AdminAuditLog({ entries = [] }) {
+  const [query, setQuery] = useState('')
+
+  // Newest first, with the searchable text attached once rather than rebuilt on
+  // every keystroke.
+  const newestFirst = useMemo(
+    () => entries.map((entry, index) => ({ entry, key: index, text: haystack(entry) })).reverse(),
+    [entries],
+  )
+
+  const needle = query.trim().toLowerCase()
+  const searching = needle !== ''
+  const matches = searching ? newestFirst.filter((row) => row.text.includes(needle)) : newestFirst
+  // Searching replaces the five rather than filtering within them - otherwise a
+  // search that matched something older would appear to find nothing.
+  const shown = searching ? matches : matches.slice(0, DEFAULT_SHOWN)
+
   if (entries.length === 0) {
     return <p className="hint">Nothing yet. Freeze or adjust an account and it appears here.</p>
   }
 
   return (
-    <ol className="admin-log">
-      {entries
-        .slice()
-        .reverse()
-        .map((entry, index) => (
-          <li key={entries.length - index}>
-            <span className="admin-log-action">{entry.action}</span>
-            <span className="admin-log-where">
-              {easternTime(entry.createdAt) ?? 'time not recorded'}
-            </span>
-            <span className="admin-log-where">
-              account #{entry.accountId} · by user #{entry.actorUserId}
-            </span>
-            <span>{entry.reason}</span>
-          </li>
-        ))}
-    </ol>
+    <div className="audit">
+      <label className="audit-search">
+        Search the log
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Action, reason, account or user number"
+        />
+      </label>
+
+      <p className="hint">
+        {searching
+          ? `${matches.length} of ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} match.`
+          : `Showing the ${Math.min(DEFAULT_SHOWN, entries.length)} most recent of ${entries.length}. Search to see the rest.`}
+      </p>
+
+      {shown.length === 0 ? (
+        <p className="hint">Nothing in the log matches that.</p>
+      ) : (
+        <ol className="admin-log">
+          {shown.map(({ entry, key }) => (
+            <li key={key}>
+              <span className="admin-log-action">{entry.action}</span>
+              <span className="admin-log-where">
+                {easternTime(entry.createdAt) ?? 'time not recorded'}
+              </span>
+              <span className="admin-log-where">
+                account #{entry.accountId} · by user #{entry.actorUserId}
+              </span>
+              <span>{entry.reason}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   )
 }

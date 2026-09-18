@@ -1141,3 +1141,15 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
 
 .confirm-rows .credit { color: var(--ledger-credit); }
 .confirm-rows .debit { color: var(--ledger-debit); }
+
+/* ------------------------------------------------------ the audit search */
+
+.audit-search { margin-bottom: var(--s2); }
+
+/* type="search" gets a clear button in some browsers and a different default
+ * font in others; this puts it back with every other field on the site. */
+.audit-search input {
+  font-size: 1rem;
+  font-family: inherit;
+  appearance: none;
+}
