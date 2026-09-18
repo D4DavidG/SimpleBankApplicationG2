@@ -9,8 +9,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/auth-context'
 import * as api from '../lib/api'
 import { formatCents, parseDollars } from '../lib/money'
-import { accountLabel } from '../lib/accounts'
 import UserSearch from '../components/UserSearch'
+import AccountPicker from '../components/AccountPicker'
 import ConfirmTransaction from '../components/ConfirmTransaction'
 
 export default function Transfer() {
@@ -97,16 +97,10 @@ export default function Transfer() {
         onCancel={() => setPending(null)}
       />
       <form onSubmit={handleSubmit}>
-        <label>
-          From
-          <select value={fromId} onChange={(e) => setFromId(e.target.value)}>
-            {accounts.map((a) => (
-              <option key={a.accountId} value={a.accountId}>
-                {accountLabel(a)} — {formatCents(a.balance)}
-              </option>
-            ))}
-          </select>
-        </label>
+        {/* The shared picker, so the account you are sending FROM wears its
+            colour here exactly as it does on deposit, withdraw and history. */}
+        <AccountPicker accounts={accounts} value={fromId} onChange={setFromId}
+                       label="From" />
 
         <UserSearch selected={person} onSelect={setPerson} />
 
