@@ -11,6 +11,7 @@ import { useState } from 'react'
 import * as api from '../lib/api'
 import { formatCents, parseDollars } from '../lib/money'
 import { accountLabel } from '../lib/accounts'
+import ConfirmTransaction from '../components/ConfirmTransaction'
 
 /* The three actions, as data rather than as three copies of the same JSX.
  *
@@ -84,6 +85,12 @@ export default function TransactionMenu({ account, onAccountChange, fixedKind })
   const [amountText, setAmountText] = useState('')
   const [toAccountText, setToAccountText] = useState('')
 
+  /* The parsed request, held between "Submit" and "Yes, do it". Null means no
+   * confirmation is open. Keeping the parsed cents here rather than re-reading
+   * the text box on confirm means the figure that was shown is exactly the
+   * figure that gets sent. */
+  const [pending, setPending] = useState(null)
+
   const [busy, setBusy] = useState(false)     // true while a request is in flight
   const [error, setError] = useState(null)    // what went wrong, or null
   const [result, setResult] = useState(null)  // what succeeded, or null
@@ -138,8 +145,17 @@ export default function TransactionMenu({ account, onAccountChange, fixedKind })
       toAccountId = parsed
     }
 
-    /* -------------------------------------------------------------- submit */
+    /* ------------------------------------------------------------- confirm */
 
+    /* Everything is valid, so stop here and show what is about to happen.
+     * Nothing has been sent yet. */
+    setPending({ cents, toAccountId })
+  }
+
+  async function send() {
+    const { cents, toAccountId } = pending
+    setPending(null)
+    setError(null)
     setBusy(true)
     try {
       /* One fresh id per submission attempt. If a double click gets two
@@ -217,6 +233,17 @@ export default function TransactionMenu({ account, onAccountChange, fixedKind })
         )}
       </div>
 
+      <ConfirmTransaction
+        open={pending !== null}
+        kind={kind === 'WITHDRAW' ? 'WITHDRAW' : kind === 'TRANSFER' ? 'TRANSFER' : 'DEPOSIT'}
+        account={account}
+        amountCents={pending?.cents ?? 0}
+        recipient={pending?.toAccountId ? `account ${pending.toAccountId}` : null}
+        busy={busy}
+        onConfirm={send}
+        onCancel={() => setPending(null)}
+      />
+
       {/* --------------------------------------------------------- the form */}
       {/* The ternary is the two-way version of `{cond && <jsx/>}`: one branch
         * or the other, never both. There is no form at all until an action is
@@ -254,7 +281,15 @@ export default function TransactionMenu({ account, onAccountChange, fixedKind })
               value={amountText}
               onChange={(event) => setAmountText(event.target.value)}
               placeholder="0.00"
+              aria-describedby="amount-hint"
             />
+            {/* The rules, before you break them. These are the server's actual
+              * limits, not a guess: money.py caps a transaction at 1,000,000.00
+              * and parseDollars refuses one decimal place. */}
+            <span className="hint" id="amount-hint">
+              $0.01 to $1,000,000.00. Whole dollars or two decimal places —
+              25 or 25.00, not 25.0.
+            </span>
           </label>
 
           {/* Nothing is checked while you type. A half-typed amount is not a

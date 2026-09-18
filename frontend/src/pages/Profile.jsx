@@ -61,6 +61,7 @@ export default function Profile() {
           <label>
             Name
             <input value={form.name} onChange={update('name')} required />
+            <span className="hint">Cannot be left blank.</span>
           </label>
           <label>
             Email

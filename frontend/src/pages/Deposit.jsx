@@ -1,3 +1,4 @@
+import { useParams } from 'react-router-dom'
 /* Brief 7.4. Pick an account, put money in.
  *
  * The form itself is TransactionMenu pinned to one action, so deposit, withdraw
@@ -12,7 +13,11 @@ import NoAccountsYet from '../components/NoAccountsYet'
 
 export default function Deposit() {
   const { accounts, refreshAccounts } = useAuth()
-  const [id, setId] = useState(accounts[0]?.accountId ?? '')
+  /* The account from the URL when there is one - /accounts/25/withdraw means
+   * that account, and starting on a different one is how you withdraw from the
+   * wrong place. Falls back to the first account for the bare /withdraw route. */
+  const { accountId } = useParams()
+  const [id, setId] = useState(Number(accountId) || accounts[0]?.accountId || '')
   const account = accounts.find((a) => a.accountId === Number(id))
 
   if (accounts.length === 0) return <NoAccountsYet action="deposit into" />

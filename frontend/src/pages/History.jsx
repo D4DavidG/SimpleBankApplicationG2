@@ -1,3 +1,4 @@
+import { useParams } from 'react-router-dom'
 /* Brief 7.6, reached from the nav. Pick an account, read its ledger.
  *
  * The table itself is Transactions.jsx, which is also the per-account page at
@@ -10,7 +11,11 @@ import NoAccountsYet from '../components/NoAccountsYet'
 
 export default function History() {
   const { accounts } = useAuth()
-  const [id, setId] = useState(accounts[0]?.accountId ?? '')
+  /* The account from the URL when there is one - /accounts/25/withdraw means
+   * that account, and starting on a different one is how you withdraw from the
+   * wrong place. Falls back to the first account for the bare /withdraw route. */
+  const { accountId } = useParams()
+  const [id, setId] = useState(Number(accountId) || accounts[0]?.accountId || '')
 
   if (accounts.length === 0) return <NoAccountsYet action="see the history of" />
 

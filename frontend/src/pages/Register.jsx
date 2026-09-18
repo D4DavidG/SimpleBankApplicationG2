@@ -86,16 +86,20 @@ export default function Register() {
         <label>
           Name
           <input value={form.name} onChange={update('name')} required />
+          <span className="hint">The name shown on your accounts.</span>
         </label>
         <label>
           Email
           <input type="email" value={form.email} onChange={update('email')} required />
+          <span className="hint">This is what you will sign in with. One account per address.</span>
         </label>
         <SecretInput
           label="Password"
           value={form.password}
           onChange={update('password')}
+          minLength={8}
           required
+          hint="At least 8 characters. Longer is better than complicated."
         />
         <SecretInput
           label="Team code (optional)"

@@ -11,6 +11,7 @@ import * as api from '../lib/api'
 import { formatCents, parseDollars } from '../lib/money'
 import { accountLabel } from '../lib/accounts'
 import UserSearch from '../components/UserSearch'
+import ConfirmTransaction from '../components/ConfirmTransaction'
 
 export default function Transfer() {
   const { accounts, refreshAccounts } = useAuth()
@@ -21,6 +22,9 @@ export default function Transfer() {
   const [error, setError] = useState(null)
   const [done, setDone] = useState(null)
   const [busy, setBusy] = useState(false)
+  // The parsed amount, held between "Send money" and "Yes, send". Null means no
+  // confirmation is open.
+  const [pending, setPending] = useState(null)
 
   const from = accounts.find((a) => a.accountId === Number(fromId))
 
@@ -40,6 +44,13 @@ export default function Transfer() {
       return
     }
 
+    // Valid, so show what is about to happen. Nothing is sent yet.
+    setPending(cents)
+  }
+
+  async function send() {
+    const cents = pending
+    setPending(null)
     setBusy(true)
     try {
       // One id per submission attempt, so a double-click cannot send twice.
@@ -74,6 +85,17 @@ export default function Transfer() {
   return (
     <div className="card profile">
       <h1>Send money</h1>
+
+      <ConfirmTransaction
+        open={pending !== null}
+        kind="TRANSFER"
+        account={from}
+        amountCents={pending ?? 0}
+        recipient={person?.name}
+        busy={busy}
+        onConfirm={send}
+        onCancel={() => setPending(null)}
+      />
       <form onSubmit={handleSubmit}>
         <label>
           From
@@ -91,7 +113,11 @@ export default function Transfer() {
         <label>
           Amount
           <input value={amount} onChange={(e) => setAmount(e.target.value)}
-                 inputMode="decimal" placeholder="25.00" />
+                 inputMode="decimal" placeholder="25.00" aria-describedby="transfer-hint" />
+          <span className="hint" id="transfer-hint">
+            $0.01 to $1,000,000.00, and no more than the balance available.
+            Whole dollars or two decimal places.
+          </span>
         </label>
 
         {error && <p className="error">{error}</p>}

@@ -96,17 +96,33 @@ if we get them wrong:
   withdraw.
 - **Disable the submit button while the call is in flight** and show what is
   happening. `Login.jsx` has the pattern; copy it.
+- **Every money action is confirmed first.** `ConfirmTransaction` takes the
+  account, the amount and the kind. The form holds the parsed cents between
+  submit and confirm, so the figure shown is exactly the figure sent.
+- **Say the rules before they are broken.** Fields carry a hint with the real
+  server limits: 8 characters for a password, $0.01 to $1,000,000.00 for an
+  amount, two decimal places or none. Check the backend before writing one — a
+  hint that disagrees with the server is worse than no hint.
+- **Preselect the account from the URL.** `/accounts/25/withdraw` means that
+  account. Starting on a different one is how somebody withdraws from the wrong
+  place.
 
-## 5. One deviation from the brief, on purpose
+## 5. One deviation from the brief, on purpose — built
 
-The brief's 7.4 and 7.5 are a single amount input and a submit button. We add a
-review-and-confirm step: enter the amount, see a summary stating the action, the
-amount and the account, then confirm.
+The brief's 7.4 and 7.5 are a single amount input and a submit button. Every
+money action instead goes through `components/ConfirmTransaction.jsx`, which
+names the account, the amount, whether the balance goes up or down, and what it
+will be afterwards.
 
 WCAG 3.3.4 asks that a transaction involving money be reversible, checked, or
-confirmed. Ours is not reversible, so it gets confirmed. It is two states in one
-component, not a second page, and it prevents the likeliest user error in the
-app. Worth the twenty lines.
+confirmed. Ours is not reversible — the ledger is append-only and a mistake is
+corrected by a second entry, never by undoing the first — so it is confirmed.
+
+**The one place this frontend does money arithmetic** is the "balance after"
+line in that dialog, and it is deliberate: it is a forecast of a request not yet
+sent, not a balance. Nothing reads it back, nothing stores it, it is labelled an
+estimate on screen, and the moment the request returns, the figure shown
+everywhere is the server's. Do not copy the pattern anywhere else.
 
 ## 5b. The home page
 
