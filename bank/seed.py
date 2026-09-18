@@ -42,9 +42,8 @@ only for a demo. Every address is on `example.com`, which RFC 2606 reserves for
 exactly this and which can never receive mail - no real address belongs in a file
 that ends up in a public repository.
 """
-from decimal import Decimal
-
 from .models import ROLE_ADMIN
+from .money import format_money
 from .security import hash_password
 
 # The shared demo password. Hashed on the way in by `register_user`; the
@@ -80,9 +79,14 @@ ACCOUNTS = [
     (3, "CHECKING", False), (3, "SAVINGS", False),
     (4, "CHECKING", False),
     (5, "CHECKING", False),
-    (6, "CHECKING", False),
+    # Accounts 8, 11 and 12 used to belong to users 6 and 8, who are the two
+    # admins. An admin does not hold an account (see BankService.open_account),
+    # so they were moved to customers rather than deleted: the ids are positional
+    # and EXPECTED_BALANCES, the ledger below and the docs all key off them.
+    (5, "CHECKING", False),                           # account 8, was user 6
     (7, "CHECKING", False), (7, "SAVINGS", True),     # account 10 ends up FROZEN
-    (8, "CHECKING", False), (8, "SAVINGS", False),
+    (9, "CHECKING", False),                           # account 11, was user 8
+    (10, "SAVINGS", False),                           # account 12, was user 8
     (9, "CHECKING", False),
     (10, "CHECKING", False),
     (11, "CHECKING", False),
@@ -91,38 +95,39 @@ ACCOUNTS = [
     (14, "CHECKING", False), (14, "SAVINGS", False),
 ]
 
-# (account id, "D" deposit or "W" withdrawal, amount). Amounts are strings, never
-# floats - that is the whole point of the exercise and it starts at the data.
+# (account id, "D" deposit or "W" withdrawal, amount in cents). Amounts are ints,
+# never floats - that is the whole point of the exercise and it starts at the
+# data. 396800 is 3,968.00.
 LEDGER = [
-    (1, "D", "3968.00"), (1, "W", "491.04"), (1, "W", "431.52"), (1, "W", "297.60"), (1, "W", "267.84"),
-    (2, "D", "25200.00"), (2, "W", "1795.50"), (2, "W", "567.00"), (2, "W", "7087.50"),
-    (3, "D", "1459.74"), (3, "W", "10.95"), (3, "W", "405.08"), (3, "W", "76.64"), (3, "W", "54.73"),
-    (4, "D", "250.00"), (4, "W", "250.00"),
-    (5, "D", "6880.00"), (5, "W", "748.20"), (5, "W", "1831.80"),
-    (6, "D", "12.50"),
-    (7, "D", "5880.32"), (7, "W", "661.54"), (7, "W", "264.61"), (7, "W", "1278.97"),
-    (8, "D", "800.00"), (8, "W", "51.00"), (8, "W", "249.00"),
-    (9, "D", "134737.20"), (9, "W", "21726.37"), (9, "W", "2021.06"), (9, "W", "10610.55"), (9, "W", "16168.47"),
-    (10, "D", "1920.00"), (10, "W", "79.20"), (10, "W", "72.00"), (10, "W", "165.60"), (10, "W", "403.20"),
-    (11, "D", "1000.10"), (11, "D", "234.20"), (11, "D", "0.30"), (11, "W", "0.04"),
-    (12, "D", "32000.00"), (12, "W", "3360.00"), (12, "W", "6720.00"), (12, "W", "1920.00"),
-    (13, "D", "1193.58"), (13, "W", "317.79"), (13, "W", "129.80"),
-    (14, "D", "9680.00"), (14, "W", "1270.50"), (14, "W", "1016.40"), (14, "W", "1343.10"),
-    (15, "D", "204.91"), (15, "W", "16.14"), (15, "W", "60.70"),
-    (16, "D", "15999.98"), (16, "W", "3419.99"), (16, "W", "240.00"), (16, "W", "240.00"), (16, "W", "2100.00"),
-    (17, "D", "496.72"), (17, "W", "72.65"), (17, "W", "54.02"), (17, "W", "55.88"), (17, "W", "3.72"),
-    (18, "D", "0.01"),
-    (19, "D", "8448.00"), (19, "W", "1077.12"), (19, "W", "696.96"), (19, "W", "1393.92"),
-    (20, "D", "115.36"), (20, "W", "39.80"), (20, "W", "3.46"),
+    (1, "D", 396800), (1, "W", 49104), (1, "W", 43152), (1, "W", 29760), (1, "W", 26784),
+    (2, "D", 2520000), (2, "W", 179550), (2, "W", 56700), (2, "W", 708750),
+    (3, "D", 145974), (3, "W", 1095), (3, "W", 40508), (3, "W", 7664), (3, "W", 5473),
+    (4, "D", 25000), (4, "W", 25000),
+    (5, "D", 688000), (5, "W", 74820), (5, "W", 183180),
+    (6, "D", 1250),
+    (7, "D", 588032), (7, "W", 66154), (7, "W", 26461), (7, "W", 127897),
+    (8, "D", 80000), (8, "W", 5100), (8, "W", 24900),
+    (9, "D", 13473720), (9, "W", 2172637), (9, "W", 202106), (9, "W", 1061055), (9, "W", 1616847),
+    (10, "D", 192000), (10, "W", 7920), (10, "W", 7200), (10, "W", 16560), (10, "W", 40320),
+    (11, "D", 100010), (11, "D", 23420), (11, "D", 30), (11, "W", 4),
+    (12, "D", 3200000), (12, "W", 336000), (12, "W", 672000), (12, "W", 192000),
+    (13, "D", 119358), (13, "W", 31779), (13, "W", 12980),
+    (14, "D", 968000), (14, "W", 127050), (14, "W", 101640), (14, "W", 134310),
+    (15, "D", 20491), (15, "W", 1614), (15, "W", 6070),
+    (16, "D", 1599998), (16, "W", 341999), (16, "W", 24000), (16, "W", 24000), (16, "W", 210000),
+    (17, "D", 49672), (17, "W", 7265), (17, "W", 5402), (17, "W", 5588), (17, "W", 372),
+    (18, "D", 1),
+    (19, "D", 844800), (19, "W", 107712), (19, "W", 69696), (19, "W", 139392),
+    (20, "D", 11536), (20, "W", 3980), (20, "W", 346),
 ]
 
-# The balances the seed document states, computed there with Python's Decimal and
-# entirely independently of this codebase. Replaying LEDGER must reproduce them.
+# The balances the seed document states, in cents, computed there independently
+# of this codebase. Replaying LEDGER must reproduce them exactly.
 EXPECTED_BALANCES = {
-    1: "2480.00", 2: "15750.00", 3: "912.34", 4: "0.00", 5: "4300.00",
-    6: "12.50", 7: "3675.20", 8: "500.00", 9: "84210.75", 10: "1200.00",
-    11: "1234.56", 12: "20000.00", 13: "745.99", 14: "6050.00", 15: "128.07",
-    16: "9999.99", 17: "310.45", 18: "0.01", 19: "5280.00", 20: "72.10",
+    1: 248000, 2: 1575000, 3: 91234, 4: 0, 5: 430000,
+    6: 1250, 7: 367520, 8: 50000, 9: 8421075, 10: 120000,
+    11: 123456, 12: 2000000, 13: 74599, 14: 605000, 15: 12807,
+    16: 999999, 17: 31045, 18: 1, 19: 528000, 20: 7210,
 }
 
 FREEZE_REASON = "Seeded frozen for the freeze/unfreeze demo path"
@@ -154,7 +159,7 @@ def load(service, password: str = DEMO_PASSWORD, verify: bool = True) -> dict:
         users[user.user_id] = user
 
     # --- accounts, opened at zero ----------------------------------------
-    # Opening balance stays 0.00 deliberately. Every cent arrives as a ledger
+    # Opening balance stays 0 deliberately. Every cent arrives as a ledger
     # entry below, so there is no "where did this money come from" gap.
     accounts = {}
     to_freeze = []
@@ -200,9 +205,10 @@ def _verify(service) -> None:
     # 1. Every balance matches the figure computed independently in the seed doc.
     for account_id, expected in EXPECTED_BALANCES.items():
         actual = service.store.get_account(account_id).balance
-        if actual != Decimal(expected):
+        if actual != expected:
             raise AssertionError(
-                f"account {account_id}: expected {expected}, replayed to {actual}"
+                f"account {account_id}: expected {format_money(expected)}, "
+                f"replayed to {format_money(actual)}"
             )
     # 2. Every stored balance still equals the sum of its own ledger.
     broken = service.reconcile_all()

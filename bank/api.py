@@ -33,7 +33,7 @@ it would add a dependency to a submission that currently installs nothing.
 `python server.py` and no virtualenv. The four things a controller does, listed
 above, are the same in any framework; what changes is the routing syntax. When
 the stack is settled, porting this file to FastAPI is mechanical - the route
-table below becomes decorators, `_require_actor` becomes a dependency, and
+table below becomes decorators, `_authenticate` becomes a dependency, and
 `ERROR_STATUS` becomes an exception handler. Nothing outside this file moves.
 
 The honest limitation: `http.server` is explicitly not for production use. For a
@@ -49,12 +49,15 @@ one table, in one file, instead of a `try`/`except` in each of sixteen handlers.
 """
 import json
 import re
+from hmac import compare_digest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .errors import (
-    AccountNotActive, AccountNotFound, BankError, DuplicateTransaction,
-    EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized, UserNotFound,
+    AccountNotActive, AccountNotFound, BankError, ConcurrentUpdate, DuplicateTransaction,
+    StaleIdCounter,
+    EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized,
+    StorageUnavailable, UserNotFound,
 )
 from .security import TOKEN_TTL_SECONDS, issue_token, new_secret, read_token
 from .serializers import account_json, page_json, transaction_json, user_json
@@ -86,6 +89,16 @@ ERROR_STATUS = [
     (AccountNotActive, 409),
     (DuplicateTransaction, 409),
     (EmailAlreadyUsed, 409),
+    # Another request changed the same account first, and this one was rolled
+    # back whole. Retrying is safe.
+    (ConcurrentUpdate, 409),
+
+    # 503 Service Unavailable - the request was fine, but the database could not
+    # be reached. Nothing was changed, so the caller can try again shortly.
+    (StorageUnavailable, 503),
+    # A setup problem, not a request problem: retrying fails identically, so it
+    # is a 500 and the message says how to repair it.
+    (StaleIdCounter, 500),
 
     # Anything else from the domain that has not been given a status yet.
     (BankError, 400),
@@ -93,8 +106,10 @@ ERROR_STATUS = [
     # ValueError covers the service layer's own argument checks - a missing name,
     # an unknown account type, an admin reason that is too short.
     (ValueError, 400),
-    # money.to_money raises TypeError on a float. That is a client mistake, not a
-    # server fault, so it is a 400 and not a 500.
+    # money.to_cents raises TypeError on anything that is not an int number of
+    # cents. That is a client mistake, not a server fault, so it is a 400 and not
+    # a 500. (parse_amount catches most of these first and raises InvalidAmount;
+    # this row covers the paths that reach to_cents directly.)
     (TypeError, 400),
 ]
 
@@ -180,9 +195,19 @@ class BankAPI:
     `http.server` for FastAPI a change to the bottom of this file only.
     """
 
-    def __init__(self, service, secret: str | None = None):
+    def __init__(self, service, secret: str | None = None,
+                 admin_code: str | None = None):
         self.service = service
+        # The key every token is signed with. Held here rather than in the
+        # service because signing is not a business rule - services.py must stay
+        # callable from a CLI or a test that has no notion of a session.
         self.secret = secret or new_secret()
+        # The shared code that lets somebody register as an admin. None means the
+        # door is shut and `adminCode` is refused whatever it contains, which is
+        # the right default: a deployment that never sets it cannot grow admins
+        # by accident. It arrives as an argument rather than being read from the
+        # environment here, so this class still has no idea what a .env file is.
+        self.admin_code = admin_code or None
         self.routes = self._build_routes()
 
     # -------------------------------------------------------------- the table
@@ -202,8 +227,10 @@ class BankAPI:
 
             # -- authenticated customer ------------------------------------
             Route("GET", "/api/auth/me", self.me),
+            Route("POST", "/api/auth/me", self.update_me),
             Route("POST", "/api/accounts", self.create_account),            # brief 5.4
             Route("GET", "/api/accounts", self.list_accounts),
+            Route("GET", "/api/users/search", self.search_users),
             Route("GET", "/api/accounts/{id}", self.get_account),           # brief 5.4
             Route("POST", "/api/accounts/{id}/deposit", self.deposit),      # brief 5.4
             Route("POST", "/api/accounts/{id}/withdraw", self.withdraw),    # brief 5.4
@@ -252,7 +279,7 @@ class BankAPI:
                 import traceback
                 traceback.print_exc()
                 return 500, {"error": "internal server error"}
-            return status, {"error": str(exc)}
+            return status, {"error": self._client_message(exc)}
 
     def _match(self, method: str, path: str) -> tuple[Route, dict]:
         """Find the route, distinguishing 404 from 405.
@@ -289,17 +316,21 @@ class BankAPI:
         if not raw.lower().startswith("bearer "):
             raise ApiError(401, "missing bearer token")
 
-        payload = read_token(raw[7:].strip(), self.secret)
-        if payload is None:
-            # Malformed, forged, or expired - all one message. See read_token.
+        # Signature and expiry, in that order, inside read_token. Returns None
+        # for every kind of unusable token - wrong shape, bad signature, wrong
+        # algorithm, expired - because they are all the same 401 to the caller.
+        claims = read_token(raw[7:].strip(), self.secret)
+        if claims is None:
             raise ApiError(401, "invalid or expired token")
 
         try:
-            # Load the user from the store rather than trusting the token's copy
-            # of the role. The token is signed, so it has not been tampered with,
-            # but it was issued up to an hour ago: if an admin has been demoted
-            # since, the stored record is right and the token is stale.
-            actor = self.service.store.get_user(payload["sub"])
+            # THE ROLE IS NOT READ FROM THE TOKEN. The claims are signed, so
+            # `claims["role"]` has certainly not been tampered with - but it was
+            # written up to a week ago, and a token cannot be recalled. If this
+            # user was demoted an hour after logging in, their token still says
+            # ADMIN and still verifies. The stored record is the authority, so
+            # the demotion takes effect on this request.
+            actor = self.service.store.get_user(claims["sub"])
         except UserNotFound:
             raise ApiError(401, "invalid or expired token") from None
 
@@ -321,6 +352,33 @@ class BankAPI:
         return parsed
 
     @staticmethod
+    def _int_field(value, key: str) -> int:
+        """A body field that must be a whole number, or a 400 naming the field.
+
+        Without this, int(["x"]) raises a TypeError whose message is Python's own
+        wording about argument types, which describes our internals rather than
+        the caller's mistake.
+        """
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            raise ApiError(400, f"'{key}' must be a number")
+        try:
+            return int(value)
+        except ValueError:
+            raise ApiError(400, f"'{key}' must be a number") from None
+
+    @staticmethod
+    def _client_message(exc: Exception) -> str:
+        """What the caller is told about a matched exception.
+
+        Domain errors and ValueErrors carry messages written for a caller. A
+        TypeError does not: its text is Python explaining itself to a developer,
+        so it is replaced with something the caller can act on.
+        """
+        if isinstance(exc, (BankError, ValueError)):
+            return str(exc)
+        return "invalid request"
+
+    @staticmethod
     def _status_for(exc: Exception) -> int | None:
         """First matching row of ERROR_STATUS, or None if nothing matches."""
         for exc_type, status in ERROR_STATUS:
@@ -336,27 +394,37 @@ class BankAPI:
     # ------------------------------------------------------------------ auth
 
     def health(self, request: Request) -> tuple[int, dict]:
-        """Liveness check. Useful for confirming the server is up before a demo."""
-        return 200, {"status": "ok", "accounts": len(self.service.store.all_accounts())}
+        """Liveness check. Useful for confirming the server is up before a demo.
+
+        Answers whether the process is up, and nothing else. It used to include
+        the account count, which was handy for seeing at a glance that the seed
+        had run, but it was the wrong thing to put here twice over: it is a
+        business figure on the one route that needs no token, and counting rows
+        makes a liveness check get slower as the data grows - once this is MySQL
+        it is a query, and a slow database would start failing health checks on a
+        server that is perfectly alive.
+
+        The count is still available to an admin from GET /api/admin/reconciliation,
+        which reports `checked`.
+        """
+        return 200, {"status": "ok"}
 
     def register(self, request: Request) -> tuple[int, dict]:
         """Create a customer and log them straight in.
 
-        Note there is no `role` field read from the body. Accepting one would let
-        anybody mint themselves an admin by adding one line to a request, which is
-        the most common privilege-escalation bug in exactly this kind of endpoint.
-        Admins are created by the seed or by another admin, never by self-service.
+        Note there is still no `role` field read from the body. Accepting one
+        would let anybody mint themselves an admin by adding a line to a request,
+        which is the most common privilege-escalation bug in exactly this kind of
+        endpoint. What the body may carry is `adminCode`, which is checked against
+        a value only the server knows - see `_role_for`.
         """
         user = self.service.register_user(
             name=request.require("name"),
             email=request.require("email"),
             password=request.require("password"),
+            role=self._role_for(request.optional("adminCode")),
         )
-        return 201, {
-            "user": user_json(user),
-            "token": issue_token(user.user_id, user.role, self.secret),
-            "expiresIn": TOKEN_TTL_SECONDS,
-        }
+        return 201, {"user": user_json(user), **self._session_for(user)}
 
     def login(self, request: Request) -> tuple[int, dict]:
         """Exchange email and password for a token.
@@ -371,16 +439,64 @@ class BankAPI:
                                              request.require("password"))
         except NotAuthorized:
             raise ApiError(401, "invalid email or password") from None
-        return 200, {
-            "user": user_json(user),
-            "token": issue_token(user.user_id, user.role, self.secret),
+        return 200, {"user": user_json(user), **self._session_for(user)}
+
+    def _session_for(self, user) -> dict:
+        """The `token` and `expiresIn` pair that register and login both return.
+
+        The username claim is the email, because that is what this application
+        logs in with - there is no separate username field on User. The display
+        name rides along so a client can greet somebody without a second call.
+        """
+        return {
+            "token": issue_token(user.user_id, user.email, user.role,
+                                 self.secret, name=user.name),
             "expiresIn": TOKEN_TTL_SECONDS,
         }
+
+    def _role_for(self, submitted_code) -> str:
+        """CUSTOMER, or ADMIN if the request carried the right code.
+
+        The comparison is `compare_digest`, not `==`. String equality returns as
+        soon as two characters differ, so the time it takes leaks how much of the
+        code was right, and a few thousand attempts turn that into the code
+        itself. The fixed-time compare is one import and removes the whole class
+        of attack.
+
+        This is a shared secret typed into a form, which is the weakest thing
+        that can honestly be called authentication: everybody who registers this
+        way knows the same string, and it cannot be revoked for one person. It is
+        appropriate for a graded training project with a seeded roster, and it
+        would not be appropriate for anything real - the production answer is
+        that an existing admin promotes you, and the audit log records who did.
+        """
+        if submitted_code is None or submitted_code == "":
+            return "CUSTOMER"
+        if not isinstance(submitted_code, str) or self.admin_code is None:
+            raise ApiError(403, "invalid admin code")
+        if not compare_digest(submitted_code, self.admin_code):
+            raise ApiError(403, "invalid admin code")
+        return "ADMIN"
 
     def me(self, request: Request) -> tuple[int, dict]:
         """Who the current token belongs to. The frontend calls this on load to
         decide whether a stored token is still good."""
         return 200, {"user": user_json(request.actor)}
+
+    def update_me(self, request: Request) -> tuple[int, dict]:
+        """Edit your own name or email.
+
+        Which user gets edited comes from the token, never from the body, so
+        there is no id here to point at somebody else. A field that is absent is
+        left alone; a field that is present and blank is a 400 rather than a way
+        to erase your own name.
+        """
+        name = request.optional("name")
+        email = request.optional("email")
+        if name is None and email is None:
+            raise ApiError(400, "send 'name', 'email', or both")
+        user = self.service.update_profile(request.actor, name=name, email=email)
+        return 200, {"user": user_json(user)}
 
     # -------------------------------------------------------------- accounts
 
@@ -400,15 +516,17 @@ class BankAPI:
         """
         owner = request.actor
         requested_owner = request.optional("userId")
-        if requested_owner is not None and int(requested_owner) != request.actor.user_id:
-            if not request.actor.is_admin:
-                raise ApiError(403, "cannot open an account for another user")
-            owner = self.service.store.get_user(int(requested_owner))
+        if requested_owner is not None:
+            requested_owner = self._int_field(requested_owner, "userId")
+            if requested_owner != request.actor.user_id:
+                if not request.actor.is_admin:
+                    raise ApiError(403, "cannot open an account for another user")
+                owner = self.service.store.get_user(requested_owner)
 
         account = self.service.open_account(
             owner=owner,
             account_type=request.require("accountType"),
-            opening_balance=request.optional("openingBalance", "0.00"),
+            opening_balance=request.optional("openingBalance", 0),
         )
         return 201, {"account": account_json(account, owner)}
 
@@ -418,6 +536,16 @@ class BankAPI:
         account id short of the user typing one in."""
         accounts = self.service.my_accounts(request.actor)
         return 200, {"accounts": [account_json(a, request.actor) for a in accounts]}
+
+    def search_users(self, request: Request) -> tuple[int, dict]:
+        """GET /api/users/search?q=ben - who the caller could send money to.
+
+        Deliberately not under /api/admin: paying somebody is a customer action.
+        See `service.search_users` for what this exposes and why it would not
+        exist in a real bank.
+        """
+        people = self.service.search_users(request.query.get("q", ""), request.actor)
+        return 200, {"users": [user_json(u) for u in people]}
 
     def get_account(self, request: Request) -> tuple[int, dict]:
         """GET /api/accounts/{id} - the brief's endpoint, with the hole closed.
@@ -486,20 +614,46 @@ class BankAPI:
         /api/accounts/{id}: a transfer is an operation on the pair, and putting
         one of them in the path and the other in the body suggests an asymmetry
         that does not exist.
+
+        The destination may be given as `toUserId` instead of `toAccountId`, and
+        the server resolves it to that person's primary account. That is what
+        lets the frontend offer a name to pick rather than asking somebody to
+        know an account number - and it means the browser never has to be told
+        another user's account ids, which it has no business holding.
         """
         out, inn = self.service.transfer(
-            from_id=int(request.require("fromAccountId")),
-            to_id=int(request.require("toAccountId")),
+            from_id=self._int_field(request.require("fromAccountId"), "fromAccountId"),
+            to_id=self._destination_account_id(request),
             amount=request.require("amount"),
             actor=request.actor,
             client_txn_id=request.optional("clientTxnId"),
         )
         source = self.service.get_account_for(out.account_id, request.actor)
+        owner = self.service.store.get_user(source.user_id)
         return 201, {
             "debit": transaction_json(out),
             "credit": transaction_json(inn),
-            "account": account_json(source, request.actor),
+            "account": account_json(source, owner),
         }
+
+    def _destination_account_id(self, request: Request) -> int:
+        """Where a transfer is going: an account id, or a person's primary one.
+
+        Exactly one of the two is required. Accepting both and silently
+        preferring one would mean a client that sent a mismatched pair moved
+        money somewhere it did not name.
+        """
+        account_id = request.optional("toAccountId")
+        user_id = request.optional("toUserId")
+        if (account_id is None) == (user_id is None):
+            raise ApiError(400, "send exactly one of 'toAccountId' or 'toUserId'")
+        if account_id is not None:
+            return self._int_field(account_id, "toAccountId")
+        user_id = self._int_field(user_id, "toUserId")
+        # get_user first, so an id that is nobody reads as "no such user" rather
+        # than as "that person has no account".
+        self.service.store.get_user(user_id)
+        return self.service.primary_account_for(user_id).account_id
 
     def _movement_response(self, txn, request: Request) -> tuple[int, dict]:
         """Shared reply for deposit and withdraw.
@@ -510,9 +664,12 @@ class BankAPI:
         moment two tabs are open. One request, one authoritative balance back.
         """
         account = self.service.get_account_for(txn.account_id, request.actor)
+        # The owner, looked up, rather than the caller. An admin acting on a
+        # customer's account would otherwise see their own name as userName.
+        owner = self.service.store.get_user(account.user_id)
         return 201, {
             "transaction": transaction_json(txn),
-            "account": account_json(account, request.actor),
+            "account": account_json(account, owner),
         }
 
     # ----------------------------------------------------------------- admin
@@ -528,17 +685,25 @@ class BankAPI:
 
     def admin_accounts(self, request: Request) -> tuple[int, dict]:
         accounts = self.service.all_accounts(request.actor)
+        # Every owner in one read, then looked up in memory. The obvious version
+        # calls get_user() inside the comprehension, which is a query per
+        # account - 37 of them here, and one more for every account opened.
+        owners = {u.user_id: u for u in self.service.store.all_users()}
         return 200, {"accounts": [
-            account_json(a, self.service.store.get_user(a.user_id)) for a in accounts
+            account_json(a, owners.get(a.user_id)) for a in accounts
         ]}
 
     def admin_freeze(self, request: Request) -> tuple[int, dict]:
         """Freeze or unfreeze. `frozen` is explicit rather than a toggle, so
         retrying a request that may or may not have landed is safe."""
         frozen = request.optional("frozen", True)
+        # Only a real true or false. bool("false") is True, so a client sending
+        # the word in quotes would freeze an account it meant to release.
+        if not isinstance(frozen, bool):
+            raise ApiError(400, "'frozen' must be true or false")
         account = self.service.set_frozen(
             account_id=request.params["id"],
-            frozen=bool(frozen),
+            frozen=frozen,
             reason=request.require("reason"),
             actor=request.actor,
         )
@@ -565,10 +730,34 @@ class BankAPI:
                      "account": account_json(account)}
 
     def admin_audit(self, request: Request) -> tuple[int, dict]:
-        """Read-only. Who did what, to which account, and why."""
+        """Read-only. Who did what, to which account, why, and when.
+
+        `createdAt` goes out as UTC in ISO 8601, like every other timestamp in
+        this API. Which zone to show it in is the client's decision, not the
+        server's - the admin page renders it in Eastern time.
+
+        The ids come with names attached. "user #28 froze account #31" is a
+        sentence you have to go and look two things up to understand, and an
+        audit log nobody reads is not doing the job it exists for. The names are
+        resolved here rather than in the browser because the alternative is the
+        client fetching every user and every account to caption one list.
+
+        A name can be missing - an account closed since, or a row older than the
+        user record it names - so each falls back to None rather than failing
+        the whole request. The ids are still there either way.
+        """
+        # Two lookups built once, not one query per row: the log is the one
+        # endpoint here that grows without limit.
+        users = {u.user_id: u.name for u in self.service.store.all_users()}
+        owners = {a.account_id: users.get(a.user_id)
+                  for a in self.service.store.all_accounts()}
         return 200, {"entries": [
-            {"actorUserId": a, "action": b, "accountId": c, "reason": d}
-            for a, b, c, d in self.service.audit_log(request.actor)
+            {"actorUserId": a, "actorName": users.get(a),
+             "action": b,
+             "accountId": c, "accountOwnerName": owners.get(c),
+             "reason": d,
+             "createdAt": e.isoformat()}
+            for a, b, c, d, e in self.service.audit_log(request.actor)
         ]}
 
     def admin_reconcile(self, request: Request) -> tuple[int, dict]:
@@ -583,7 +772,7 @@ class BankAPI:
             "balanced": not broken,
             "checked": len(self.service.store.all_accounts()),
             "discrepancies": [
-                {"accountId": i, "balance": f"{b:.2f}", "ledgerSum": f"{s:.2f}"}
+                {"accountId": i, "balance": b, "ledgerSum": s}  # cents
                 for i, b, s in broken
             ],
         }
@@ -664,7 +853,7 @@ def make_handler_class(api: BankAPI, cors: bool = True, quiet: bool = False):
 
 
 def serve(service, host: str = "127.0.0.1", port: int = 8000,
-          secret: str | None = None) -> None:
+          secret: str | None = None, admin_code: str | None = None) -> None:
     """Start the API. Blocks until Ctrl+C.
 
     ThreadingHTTPServer, not HTTPServer: the single-threaded version handles one
@@ -672,7 +861,7 @@ def serve(service, host: str = "127.0.0.1", port: int = 8000,
     `BankService` exists to solve. Serving requests in parallel means the demo
     runs on the same execution model the rules were written for.
     """
-    api = BankAPI(service, secret)
+    api = BankAPI(service, secret, admin_code)
     httpd = ThreadingHTTPServer((host, port), make_handler_class(api))
     print(f"  Simple Bank API listening on http://{host}:{port}")
     print(f"  {len(api.routes)} routes. Try: GET http://{host}:{port}/api/health")
