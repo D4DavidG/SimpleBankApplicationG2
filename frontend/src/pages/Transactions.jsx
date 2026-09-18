@@ -1,15 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
 import * as api from '../lib/api'
 import { formatCents, formatDate } from '../lib/money'
-import { accountLabel, accountTone } from '../lib/accounts'
 
-/* Used two ways: as the page at /accounts/:id/transactions, where the id comes
- * from the URL, and embedded in History.jsx, where it arrives as a prop. The
- * prop wins when it is there, so the same table serves both. */
-export default function Transactions({ accountId: accountIdProp }) {
-  const params = useParams()
-  const accountId = accountIdProp ?? params.accountId
+/* The ledger for one account: the rows, the pager, and nothing else.
+ *
+ * This is the History page's inner half, the way TransactionMenu is the inner
+ * half of Deposit and Withdraw. It renders no card, no title and no account
+ * header, because History.jsx has already put all three around it - which is
+ * what makes the four money pages look like one another.
+ *
+ * The account id arrives as a prop. It does not read the URL: History owns
+ * which account is selected, and a component that read both would have two
+ * answers to the same question.
+ */
+export default function Transactions({ accountId }) {
+  /* Starts at page one every time. History gives this component a `key` of the
+   * account id, so switching account remounts it rather than reusing it - which
+   * is how the page number resets without an effect reaching in to set it.
+   * Without that, leaving an account you were three pages into would land on
+   * page three of one that has a single page, and the table would come back
+   * empty. */
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
   const [items, setItems] = useState([])
@@ -60,42 +70,11 @@ export default function Transactions({ accountId: accountIdProp }) {
     })
   }, [account, items])
 
-  if (loading) {
-    return (
-      <div className="card">
-        <h1>Transactions</h1>
-        <p className="hint">Loading activity...</p>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="card">
-        <h1>Transactions</h1>
-        <p className="error">{error}</p>
-      </div>
-    )
-  }
+  if (loading) return <p className="hint">Loading activity...</p>
+  if (error) return <p className="error">{error}</p>
 
   return (
-    <div className="card">
-      {/* The account this ledger belongs to, in its own colour - the same bubble
-          the deposit, withdraw and history pickers use, so a page about one
-          account always says which one the same way.
-          Not shown when embedded: History.jsx puts its own picker above this,
-          and two bubbles naming the same account is one too many. */}
-      {account && !accountIdProp && (
-        <div className={`account-bubble tone-${accountTone(account)}`}>
-          <div className="bubble-single">
-            <strong>{accountLabel(account)}</strong>
-            <span className="bubble-balance">{formatCents(account.balance)}</span>
-          </div>
-        </div>
-      )}
-
-      <h1>Transactions</h1>
-
+    <>
       <p className="hint">
         Showing {items.length} result{items.length === 1 ? '' : 's'} on page {page}.
       </p>
@@ -139,7 +118,6 @@ export default function Transactions({ accountId: accountIdProp }) {
         </>
       )}
 
-      <Link className="back-link" to={`/accounts/${accountId}`}>Back to account</Link>
-    </div>
+    </>
   )
 }

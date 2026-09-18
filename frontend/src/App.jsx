@@ -15,7 +15,6 @@ import OpenAccount from './pages/OpenAccount'
 import AccountDetails from './pages/AccountDetails'
 import Deposit from './pages/Deposit'
 import Withdraw from './pages/Withdraw'
-import Transactions from './pages/Transactions'
 import Transfer from './pages/Transfer'
 import Admin from './pages/Admin'
 import NotFound from './pages/NotFound'
@@ -47,7 +46,9 @@ export default function App() {
             <Route path="/accounts/:accountId" element={auth(<AccountDetails />)} />
             <Route path="/accounts/:accountId/deposit" element={auth(<Deposit />)} />
             <Route path="/accounts/:accountId/withdraw" element={auth(<Withdraw />)} />
-            <Route path="/accounts/:accountId/transactions" element={auth(<Transactions />)} />
+            {/* Both routes render History: one arrives with the account
+                already chosen, the other picks it. Same page either way. */}
+            <Route path="/accounts/:accountId/transactions" element={auth(<History />)} />
             <Route path="/transfer" element={<RequireAuth customer><Transfer /></RequireAuth>} />
 
             {/* The money pages as the nav offers them: each picks an account

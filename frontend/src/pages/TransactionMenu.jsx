@@ -196,9 +196,14 @@ export default function TransactionMenu({ account, onAccountChange, fixedKind })
 
   return (
     <div>
-      <h1>Make a transaction</h1>
+      {/* Both of these belong to the page when it pinned the action: Deposit
+       * has already said "Deposit" and already shown the account in its picker,
+       * so repeating them here showed the same account twice. Standalone - with
+       * the action picker - this component is the whole screen and needs them. */}
+      {!fixedKind && <h1>Make a transaction</h1>}
 
       {/* ------------------------------------------- the account and the picker */}
+      {!fixedKind && (
       <div className="card menu-head">
         <div>
           <strong>{accountLabel(account)}</strong>
@@ -232,6 +237,7 @@ export default function TransactionMenu({ account, onAccountChange, fixedKind })
         </label>
         )}
       </div>
+      )}
 
       <ConfirmTransaction
         open={pending !== null}

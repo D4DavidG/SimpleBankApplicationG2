@@ -87,11 +87,14 @@ export default function AccountDetails() {
         <div><dt>Status</dt><dd>{account.status}</dd></div>
       </dl>
 
+      {/* Same order as the nav bar: Deposit, Withdraw, Transfer, History.
+          Two different orders for the same four things is a small thing that
+          makes people read the row every time instead of reaching for it. */}
       <div className="actions">
         <Link className="action lift" to={`/accounts/${account.accountId}/deposit`}>Deposit</Link>
         <Link className="action lift" to={`/accounts/${account.accountId}/withdraw`}>Withdraw</Link>
-        <Link className="action lift" to={`/accounts/${account.accountId}/transactions`}>History</Link>
         <Link className="action lift" to="/transfer">Transfer</Link>
+        <Link className="action lift" to={`/accounts/${account.accountId}/transactions`}>History</Link>
       </div>
     </div>
   )
