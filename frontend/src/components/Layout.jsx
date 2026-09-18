@@ -53,8 +53,10 @@ export default function Layout() {
               <NavLink to="/accounts">Accounts</NavLink>
               <NavLink to="/deposit">Deposit</NavLink>
               <NavLink to="/withdraw">Withdraw</NavLink>
-              <NavLink to="/history">History</NavLink>
               <NavLink to="/transfer">Transfer</NavLink>
+              {/* Last: the three before it are things you do, this is the
+                  record of having done them. */}
+              <NavLink to="/history">History</NavLink>
             </>
           ) : (
             user && <NavLink to="/accounts/new">Open an account</NavLink>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import * as api from '../lib/api'
 import { formatCents, formatDate } from '../lib/money'
+import { accountLabel, accountTone } from '../lib/accounts'
 
 /* Used two ways: as the page at /accounts/:id/transactions, where the id comes
  * from the URL, and embedded in History.jsx, where it arrives as a prop. The
@@ -13,7 +14,7 @@ export default function Transactions({ accountId: accountIdProp }) {
   const [pageSize] = useState(10)
   const [items, setItems] = useState([])
   const [totalPages, setTotalPages] = useState(1)
-  const [currentBalance, setCurrentBalance] = useState(null)
+  const [account, setAccount] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -31,7 +32,7 @@ export default function Transactions({ accountId: accountIdProp }) {
         const data = await api.listTransactions(Number(accountId), { page, pageSize })
 
         if (!cancelled) {
-          setCurrentBalance(accountData.account.balance)
+          setAccount(accountData.account)
           setItems(data.items)
           setTotalPages(data.totalPages || 1)
         }
@@ -49,15 +50,15 @@ export default function Transactions({ accountId: accountIdProp }) {
   }, [accountId, page, pageSize])
 
   const rows = useMemo(() => {
-    if (currentBalance === null) return []
+    if (!account) return []
 
-    let runningBalance = currentBalance
+    let runningBalance = account.balance
     return items.map((txn) => {
       const result = runningBalance
       runningBalance -= txn.signedAmount
       return { ...txn, resultingBalance: result }
     })
-  }, [currentBalance, items])
+  }, [account, items])
 
   if (loading) {
     return (
@@ -79,6 +80,20 @@ export default function Transactions({ accountId: accountIdProp }) {
 
   return (
     <div className="card">
+      {/* The account this ledger belongs to, in its own colour - the same bubble
+          the deposit, withdraw and history pickers use, so a page about one
+          account always says which one the same way.
+          Not shown when embedded: History.jsx puts its own picker above this,
+          and two bubbles naming the same account is one too many. */}
+      {account && !accountIdProp && (
+        <div className={`account-bubble tone-${accountTone(account)}`}>
+          <div className="bubble-single">
+            <strong>{accountLabel(account)}</strong>
+            <span className="bubble-balance">{formatCents(account.balance)}</span>
+          </div>
+        </div>
+      )}
+
       <h1>Transactions</h1>
 
       <p className="hint">
