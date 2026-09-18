@@ -14,14 +14,13 @@ import threading
 from contextlib import contextmanager
 
 from .errors import AccountNotFound, EmailAlreadyUsed, UserNotFound
-from .models import Account, AuthToken, Transaction, User
+from .models import Account, Transaction, User
 
 
 class BankStore:
     def __init__(self):
         self._users: dict[int, User] = {}
         self._email_index: dict[str, int] = {}
-        self._tokens: dict[str, AuthToken] = {}
         self._accounts: dict[int, Account] = {}
         self._transactions: list[Transaction] = []
         self._audit: list[tuple] = []
@@ -106,31 +105,6 @@ class BankStore:
         if name is not None:
             user.name = name.strip()
         return user
-
-    # ---- session tokens ----
-    #
-    # The dict is keyed by the token, which is this class standing in for the
-    # token column being the PRIMARY KEY. `user_id` is deliberately not indexed
-    # either way round: nothing looks a session up by user, and one user may hold
-    # any number of them.
-
-    def add_token(self, token: AuthToken) -> AuthToken:
-        """Insert a session. The key is the token itself, so a collision would
-        overwrite a live session rather than be refused - hence the check, which
-        stands in for the PRIMARY KEY constraint MongoStore gets for free."""
-        if token.token in self._tokens:
-            raise ValueError("token already issued")
-        self._tokens[token.token] = token
-        return token
-
-    def find_token(self, token: str) -> AuthToken | None:
-        """The session for this token, or None if there is no such row.
-
-        Returns None rather than raising, and does not check the expiry: whether
-        an expired session is an error is a rule, and rules live in the service
-        layer. See `BankService.validate_token`.
-        """
-        return self._tokens.get(token)
 
     # ---- accounts ----
 

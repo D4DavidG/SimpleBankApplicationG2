@@ -12,12 +12,15 @@ past that, it is doing too much.
 
 ## 1. Where we are
 
-Working: home, the account list, login, register, admin sign-in, admin
-registration, and the profile page. Routing, the auth context, the route guard
-and the API layer are done and tested against the live backend.
+Working: home, the account list, account detail, open account, the
+transaction history, login, register, profile and the admin console. Routing,
+the auth context, the route guard and the API layer are done and tested against
+the live backend. A 401 from any call now ends the session in one place — see
+the README.
 
-Stubbed: seven pages, one file each in `src/pages/`, each carrying a `TODO`
-comment that names the API call it needs and the rules that apply.
+Stubbed: three pages, one file each in `src/pages/`, each carrying a `TODO`
+comment that names the API call it needs and the rules that apply. Read §2 before
+starting any of them: `TransactionMenu.jsx` already does all three.
 
 ## 2. The pages
 
@@ -29,15 +32,23 @@ comment that names the API call it needs and the rules that apply.
 | 4 | `/register` | `Register.jsx` | 7.2 | David | ✅ |
 | 5 | `/profile` | `Profile.jsx` | — | David | ✅ |
 | 6 | `/accounts/new` | `OpenAccount.jsx` | 7.2 | Daniel | ✅ |
-| 7 | `/accounts/:id` | `AccountDetails.jsx` | 7.3 | | |
+| 7 | `/accounts/:id` | `AccountDetails.jsx` | 7.3 | | ✅ |
 | 8 | `/accounts/:id/deposit` | `Deposit.jsx` | 7.4 | | ⚠️ see below |
 | 9 | `/accounts/:id/withdraw` | `Withdraw.jsx` | 7.5 | | ⚠️ see below |
-| 10 | `/accounts/:id/transactions` | `Transactions.jsx` | 7.6 | | |
+| 10 | `/accounts/:id/transactions` | `Transactions.jsx` | 7.6 | | ✅ see §2a |
 | 11 | `/transfer` | `Transfer.jsx` | bonus | | ⚠️ see below |
 | 12 | `/admin` | `Admin.jsx` | — | Daniel | ✅ |
 | — | *(temporary)* `/transactions` | `TransactionMenu.jsx` | 7.4/7.5 + bonus | | ✅ built |
 
 Put your name in the Owner column and in the `owner` prop on the page's `<Stub>`.
+
+**§2a — a known bug in `Transactions.jsx`.** Its "Resulting balance" column is
+derived in the browser by walking backwards from the current balance. That is
+right on page 1 and **wrong on every later page**, which restarts from the live
+balance instead of from where the previous page ended. It is also the one place
+the codebase breaks its own "never compute a balance in the browser" rule.
+Cheapest fix is to drop the column; the honest one is to have the server send a
+running balance. Unclaimed.
 
 **⚠️ `TransactionMenu.jsx` already does deposit, withdraw and transfer** — one
 component, one form, switched by a `kind` dropdown. So stubs 8, 9 and 11 are

@@ -36,9 +36,9 @@ Log in with a seeded user: `aaron.forrester@example.com`, password
 
 | File | What it is |
 | --- | --- |
-| `src/lib/api.js` | One function per endpoint. Handles the `Authorization` header, JSON encoding and the `{ error }` failure shape. **Do not call `fetch` from a page.** |
+| `src/lib/api.js` | One function per endpoint. Handles the `Authorization` header, JSON encoding, the `{ error }` failure shape, and the session teardown on a 401. **Do not call `fetch` from a page.** |
 | `src/lib/money.js` | `formatCents`, `parseDollars`, `formatDate`. |
-| `src/context/AuthContext.jsx` | Login, register, logout, the stored token, the profile edit, and the account list. |
+| `src/context/AuthContext.jsx` | Login, register, logout, the stored token, the profile edit, the account list, and `sessionExpired`. |
 | `src/context/auth-context.js` | The `useAuth()` hook. |
 | `src/components/RequireAuth.jsx` | Route guard: redirects to `/login`, or away from `/admin` for a non-admin. |
 | `src/components/Layout.jsx` | Nav bar and page frame. Turns red in admin context. |
@@ -46,9 +46,26 @@ Log in with a seeded user: `aaron.forrester@example.com`, password
 | `src/App.jsx` | Every route, in one table. |
 | `src/index.css` | Placeholder styles. Nobody is attached to these. |
 
-Working already: `/` (home), `/accounts`, `/login`, `/register` and `/profile`.
+Working already: `/` (home), `/accounts`, `/accounts/:id`, `/accounts/new`,
+`/accounts/:id/transactions`, `/login`, `/register`, `/profile` and `/admin`.
 They are plain but real, so the pages you build have live data and real account
-ids to work against.
+ids to work against. Still stubbed: deposit, withdraw and transfer — see PLAN.md
+§2 before starting one, because `TransactionMenu.jsx` already does all three.
+
+### When the token stops working
+
+Tokens are signed JWTs, so they are not stored anywhere and cannot be cancelled;
+what ends a session is the expiry, or the backend restarting without
+`BANK_SECRET` set, which changes the signing key and invalidates every token at
+once. That second one happens constantly in development.
+
+`request()` in `src/lib/api.js` handles it in one place: **any 401 clears the
+stored token and drops the signed-in user**, so `RequireAuth` redirects to the
+sign-in form and `LoginForm` explains why. Login and register are exempt — a 401
+there means the password was wrong, not that a session ended.
+
+Do not add 401 handling to a page. It is done once, and a page that catches it
+separately will fight the redirect.
 
 ### Staff accounts
 

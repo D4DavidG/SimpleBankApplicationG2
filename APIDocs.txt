@@ -358,19 +358,32 @@ Conventions
 
             Authorization: Bearer <token>
 
-        The token is a long random string and nothing else - there is no user
-        id or role inside it to read or to edit. The server keeps a row for
-        each issued token holding the user it belongs to and when it expires,
-        and looks that row up on every authenticated call. A token that was
-        never issued, or whose expiry has passed, is a 401.
+        The token is a signed JWT: three base64url parts,
+        header.payload.signature, signed with HMAC-SHA256 by a key only the
+        server holds. The payload carries:
 
-        A token lasts one week. The expiry comes back as expiresIn (seconds)
-        alongside the token at register and login. The user's role is re-read
-        from storage on every request, so an admin demoted five minutes ago is
-        not still an admin for the rest of the week.
+            sub       the user id
+            username  the email, which is what this app logs in with
+            name      the display name
+            role      CUSTOMER or ADMIN
+            iat       issued at, Unix seconds
+            exp       expires at, Unix seconds
 
-        One user may hold several tokens at once - a phone and a laptop are
-        two sessions, and logging in on one does not end the other.
+        Base64 is encoding, not encryption, so a client can decode and read all
+        of that without any key - that is normal and intended. What it cannot do
+        is change any of it: editing the payload invalidates the signature, and
+        the server checks the signature before it reads a single claim. A bad
+        signature, an expired exp, or a token that is not three parts is a 401.
+
+        A token lasts one week, and expiresIn (seconds) comes back alongside it
+        at register and login.
+
+        DO NOT AUTHORIZE ON THE role CLAIM. The server does not. A JWT cannot
+        be cancelled once issued, so a user demoted after logging in still
+        holds a token that says ADMIN and still verifies. The server re-reads
+        the user from storage on every request and uses the stored role, so the
+        demotion takes effect immediately. The claim is there so a client can
+        show the right menu, not so anything can be decided by it.
 
     MONEY IS AN INTEGER NUMBER OF CENTS
         Every monetary field, in and out, is a whole number of cents sent as a

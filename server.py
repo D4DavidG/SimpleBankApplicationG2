@@ -19,7 +19,7 @@ import sys
 
 from bank import BankService, BankStore, serve
 from bank import seed as seed_module
-from bank.config import load_env
+from bank.config import ensure_secret, load_env
 from bank.errors import StorageUnavailable
 
 # The team's shared demo database. --reset refuses to wipe it without --force.
@@ -131,14 +131,20 @@ def main(argv=None) -> int:
         load_demo_data(service)
 
     print()
-    # Sessions are rows in the `tokens` collection, so with MongoDB a token keeps
-    # working across a restart - the row is still there. In memory the tokens go
-    # with everything else, which is worth saying before somebody wonders why a
-    # saved Postman token stopped working.
-    if use_mongo:
-        print("  sessions:       stored in the database (tokens survive a restart)")
+    # Tokens are signed, not stored, so what decides whether one survives a
+    # restart is the signing key rather than the database. ensure_secret creates
+    # one on first run and saves it to .env, so this is a setup step nobody has
+    # to be told about - and a saved Postman token answering 401 after a restart
+    # stops being a thing that happens.
+    secret, origin = ensure_secret()
+    if origin == "environment":
+        print("  signing key:    from BANK_SECRET (tokens survive a restart)")
+    elif origin == "created":
+        print("  signing key:    generated and saved to .env - yours, not shared")
+        print("                  (tokens will now survive a restart)")
     else:
-        print("  sessions:       in memory (tokens stop working when you restart)")
+        print("  signing key:    random for this process; .env could not be written")
+        print("                  (every token stops working when you restart)")
     admin_code = os.environ.get("BANK_ADMIN_CODE", "").strip()
     if admin_code:
         print("  admin code:     set, so POST /api/auth/register accepts adminCode")
@@ -147,7 +153,8 @@ def main(argv=None) -> int:
         print("  tip: set BANK_ADMIN_CODE in .env to open admin registration")
     print()
 
-    serve(service, host=args.host, port=args.port, admin_code=admin_code)
+    serve(service, host=args.host, port=args.port, secret=secret,
+          admin_code=admin_code)
     return 0
 
 

@@ -49,7 +49,6 @@ one table, in one file, instead of a `try`/`except` in each of sixteen handlers.
 """
 import json
 import re
-from datetime import datetime, timezone
 from hmac import compare_digest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -60,6 +59,7 @@ from .errors import (
     EmailAlreadyUsed, InsufficientFunds, InvalidAmount, NotAuthorized,
     StorageUnavailable, UserNotFound,
 )
+from .security import TOKEN_TTL_SECONDS, issue_token, new_secret, read_token
 from .serializers import account_json, page_json, transaction_json, user_json
 
 # ---------------------------------------------------------------------------
@@ -195,8 +195,13 @@ class BankAPI:
     `http.server` for FastAPI a change to the bottom of this file only.
     """
 
-    def __init__(self, service, admin_code: str | None = None):
+    def __init__(self, service, secret: str | None = None,
+                 admin_code: str | None = None):
         self.service = service
+        # The key every token is signed with. Held here rather than in the
+        # service because signing is not a business rule - services.py must stay
+        # callable from a CLI or a test that has no notion of a session.
+        self.secret = secret or new_secret()
         # The shared code that lets somebody register as an admin. None means the
         # door is shut and `adminCode` is refused whatever it contains, which is
         # the right default: a deployment that never sets it cannot grow admins
@@ -310,16 +315,22 @@ class BankAPI:
         if not raw.lower().startswith("bearer "):
             raise ApiError(401, "missing bearer token")
 
+        # Signature and expiry, in that order, inside read_token. Returns None
+        # for every kind of unusable token - wrong shape, bad signature, wrong
+        # algorithm, expired - because they are all the same 401 to the caller.
+        claims = read_token(raw[7:].strip(), self.secret)
+        if claims is None:
+            raise ApiError(401, "invalid or expired token")
+
         try:
-            # One service call, as every other handler makes. The token is looked
-            # up in the tokens table, its expiry is checked, and the user is read
-            # from storage - so a role changed since the session started takes
-            # effect on this request, rather than whenever the session expires.
-            actor = self.service.validate_token(raw[7:].strip())
-        except NotAuthorized:
-            # 401, not the 403 that ERROR_STATUS gives NotAuthorized elsewhere.
-            # "Your token is no good" means try authenticating again; the 403
-            # below means authenticating again will not help.
+            # THE ROLE IS NOT READ FROM THE TOKEN. The claims are signed, so
+            # `claims["role"]` has certainly not been tampered with - but it was
+            # written up to a week ago, and a token cannot be recalled. If this
+            # user was demoted an hour after logging in, their token still says
+            # ADMIN and still verifies. The stored record is the authority, so
+            # the demotion takes effect on this request.
+            actor = self.service.store.get_user(claims["sub"])
+        except UserNotFound:
             raise ApiError(401, "invalid or expired token") from None
 
         if route.admin and not actor.is_admin:
@@ -432,14 +443,15 @@ class BankAPI:
     def _session_for(self, user) -> dict:
         """The `token` and `expiresIn` pair that register and login both return.
 
-        `expiresIn` is seconds remaining rather than the stored absolute moment:
-        the client's clock may be wrong, and a countdown does not care. It is
-        computed from the row the service just wrote, so the number the client
-        holds is the one the database will enforce.
+        The username claim is the email, because that is what this application
+        logs in with - there is no separate username field on User. The display
+        name rides along so a client can greet somebody without a second call.
         """
-        session = self.service.issue_token(user)
-        remaining = session.expires_at - datetime.now(timezone.utc)
-        return {"token": session.token, "expiresIn": int(remaining.total_seconds())}
+        return {
+            "token": issue_token(user.user_id, user.email, user.role,
+                                 self.secret, name=user.name),
+            "expiresIn": TOKEN_TTL_SECONDS,
+        }
 
     def _role_for(self, submitted_code) -> str:
         """CUSTOMER, or ADMIN if the request carried the right code.
@@ -777,7 +789,7 @@ def make_handler_class(api: BankAPI, cors: bool = True, quiet: bool = False):
 
 
 def serve(service, host: str = "127.0.0.1", port: int = 8000,
-          admin_code: str | None = None) -> None:
+          secret: str | None = None, admin_code: str | None = None) -> None:
     """Start the API. Blocks until Ctrl+C.
 
     ThreadingHTTPServer, not HTTPServer: the single-threaded version handles one
@@ -785,7 +797,7 @@ def serve(service, host: str = "127.0.0.1", port: int = 8000,
     `BankService` exists to solve. Serving requests in parallel means the demo
     runs on the same execution model the rules were written for.
     """
-    api = BankAPI(service, admin_code)
+    api = BankAPI(service, secret, admin_code)
     httpd = ThreadingHTTPServer((host, port), make_handler_class(api))
     print(f"  Simple Bank API listening on http://{host}:{port}")
     print(f"  {len(api.routes)} routes. Try: GET http://{host}:{port}/api/health")

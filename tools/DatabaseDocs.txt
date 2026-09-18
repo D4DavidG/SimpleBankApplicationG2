@@ -12,9 +12,13 @@ What is stored in the database
     APIDocs.txt. This file is the middle one: what documents exist, what each
     field means, and which rules the database itself enforces.
 
-    Six collections. bank/mongo_store.py is the only file that writes any of
+    Five collections. bank/mongo_store.py is the only file that writes any of
     them, and bank/store.py does the same job in memory for the tests and the
     console demo - see IN-MEMORY PARITY at the end.
+
+    NOTHING HERE STORES A SESSION. Logins are signed JWTs, so the server hands
+    one out and keeps no record of it - there is no tokens or sessions
+    collection, and a test asserts one never reappears. See bank/security.py.
 
 
 Collections
@@ -35,44 +39,6 @@ users
     NOTES:
         password_hash may be null, and such a user cannot log in. The seed roster
         creates users this way on purpose.
-
-tokens
-    DESCRIPTION: one document per session. The token the client sends back on
-                 every authenticated request.
-    DOCUMENT
-        {
-            string  _id,                (the token itself - 43 random characters)
-            integer user_id,            (whose session, -> users._id)
-            date    expires_at          (absolute, one week after it was issued)
-        }
-    INDEXES
-        _id, which is the point: the token IS the primary key, so MongoDB
-        refuses a duplicate without anybody writing a check.
-
-        expires_at, as a TTL index (expireAfterSeconds: 0). MongoDB deletes each
-        document once that moment has passed, so expired sessions do not pile up
-        and nothing has to remember to sweep them.
-    WRITTEN BY
-        add_token, called only by BankService.issue_token, which register and
-        login are the only two callers of. Nothing updates a token document -
-        a new session is a new document.
-    NOTES:
-        user_id is deliberately NOT unique. One person signed in on a phone and a
-        laptop holds two documents here, and ending one session must not end the
-        other.
-
-        The token carries no meaning. There is no user id or role encoded in it,
-        so there is nothing in it to read and nothing to edit - the only way to
-        hold a working one is to have been given it. 32 bytes from secrets, which
-        is the CSPRNG, base64url-encoded to 43 characters.
-
-        The TTL index is housekeeping, not the security check. BankService.
-        validate_token compares expires_at itself on every request, because the
-        TTL monitor only runs about once a minute and an expired session must
-        stop working immediately, not eventually.
-
-        This is the one collection worth not dumping into a log or a screenshot.
-        A token in a paste is a session somebody else can use until it expires.
 
 accounts
     DESCRIPTION: one document per bank account. Holds the authoritative balance.
@@ -194,8 +160,8 @@ Conventions
         browser are the same number, and a bug report that says "account 7" can be
         looked up directly.
 
-        Two exceptions, both of which have a natural key already: counters, whose
-        _id is the name of the sequence, and tokens, whose _id is the token.
+        The one exception is counters itself, whose _id is the name of the
+        sequence.
 
     MONEY IS AN INTEGER NUMBER OF CENTS
         Every stored monetary field is a whole number of cents. 1,234.56 is
@@ -222,7 +188,6 @@ Conventions
               TransientTransactionError)    -> ConcurrentUpdate     (409)
             duplicate key on users.email    -> EmailAlreadyUsed
             duplicate key on client_txn_id  -> DuplicateTransaction
-            duplicate key on tokens._id     -> ValueError (see add_token)
 
         Nothing above the store imports pymongo, which is what lets the same
         service layer run against the in-memory store unchanged.
@@ -231,7 +196,7 @@ Conventions
         For every account: balance == sum of its transactions' signed amounts.
 
     RESET
-        MongoStore.reset() drops all six collections and rebuilds the indexes. It
+        MongoStore.reset() drops all five collections and rebuilds the indexes. It
         is what server.py --reset and the integration tests use, and it destroys
         everything in whichever database MONGODB_DB names.
 

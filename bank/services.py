@@ -19,27 +19,28 @@ Those are correct and incomplete. The rules actually enforced below:
        but may not move money in one: that is what adjust() is for.
     7. Admins adjust by posting a ledger entry with a reason. Never by setting
        a balance.
-    8. A session is a stored token: issued only beside a successful credential
-       check, looked up on every request, and refused once it expires.
 
-Rules 3 through 8 are not in the brief. They are cheap now and painful to retrofit.
+Rules 3 through 7 are not in the brief. They are cheap now and painful to retrofit.
+
+Sessions are deliberately not a rule here. A JWT is signed and carries its own
+claims, so issuing and validating one needs the signing secret and no storage at
+all - which makes it the controller's job, not a business rule. See
+`bank/security.py` and `api.BankAPI._authenticate`.
 
 No imports from any web framework or database library. The whole module can be
 exercised by calling functions, which is what makes the tests fast and is what
 "clean separation" has to mean in practice.
 """
-from datetime import datetime, timedelta, timezone
-
 from .errors import (
     AccountNotActive, AccountNotFound, DuplicateTransaction,
-    InsufficientFunds, NotAuthorized, UserNotFound,
+    InsufficientFunds, NotAuthorized,
 )
 from .models import (
     ACTIVE, DEPOSIT, FROZEN, ROLE_ADMIN, TRANSFER_IN, TRANSFER_OUT, WITHDRAWAL,
-    Account, AuthToken, Transaction, User, make_account,
+    Account, Transaction, User, make_account,
 )
 from .money import parse_amount
-from .security import TOKEN_TTL_SECONDS, hash_password, new_token, verify_password
+from .security import hash_password, verify_password
 
 
 class BankService:
@@ -155,53 +156,6 @@ class BankService:
         if cls._DECOY is None:
             cls._DECOY = hash_password("decoy-never-matches-anything")
         return cls._DECOY
-
-    # --------------------------------------------------------------- sessions
-
-    def issue_token(self, user: User, ttl: int = TOKEN_TTL_SECONDS) -> AuthToken:
-        """Start a session for a user who has just proved who they are.
-
-        Called by register and login, and by nothing else. That is the whole
-        rule: a token is only ever created next to a successful credential
-        check, so there is no method here that mints one for a user id somebody
-        passed in.
-
-        A user may hold any number of these at once - a phone and a laptop are
-        two sessions, and issuing the second must not disturb the first - so
-        nothing is deleted on the way in.
-        """
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
-        with self.store.atomic():
-            return self.store.add_token(
-                AuthToken(token=new_token(), user_id=user.user_id,
-                          expires_at=expires_at)
-            )
-
-    def validate_token(self, token: str | None) -> User:
-        """The user this token belongs to, or NotAuthorized.
-
-        Three ways to fail, and they are one answer on purpose:
-
-            - no such token
-            - the token has expired
-            - the token's user no longer exists
-
-        Distinguishing them out loud would tell somebody working through guesses
-        which of them was closest, and the caller's response is the same either
-        way. `api._authenticate` turns this into a single 401.
-
-        The User is read from the store rather than carried by the token, so
-        an admin demoted a minute ago is not an admin for the rest of the hour.
-        """
-        if not isinstance(token, str) or not token:
-            raise NotAuthorized("invalid or expired token")
-        session = self.store.find_token(token)
-        if session is None or session.is_expired():
-            raise NotAuthorized("invalid or expired token")
-        try:
-            return self.store.get_user(session.user_id)
-        except UserNotFound:
-            raise NotAuthorized("invalid or expired token") from None
 
     # --------------------------------------------------------------- accounts
 

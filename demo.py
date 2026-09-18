@@ -30,7 +30,7 @@ import os
 from bank import (
     AccountNotActive, AccountNotFound, BankAPI, BankError, BankService, BankStore,
     DuplicateTransaction, InsufficientFunds, InvalidAmount, NotAuthorized,
-    format_money,
+    format_money, issue_token,
 )
 
 # The database --mongo uses. Deliberately not `simple_bank` (the shared demo
@@ -322,16 +322,14 @@ def api_section(svc, aaron, david, checking, erik_acct):
     """
     rule("11. The same rules over HTTP")
 
-    api = BankAPI(svc)
-    # One session per person, issued once here rather than per call: a token is a
-    # stored row now, so minting one for every line below would leave a trail of
-    # sessions in the database for no reason.
-    tokens = {user.user_id: svc.issue_token(user).token for user in (aaron, david)}
+    api = BankAPI(svc, secret="demo-secret-not-used-anywhere-real")
 
     def call(label, method, path, body=None, actor=None, expect=None):
         headers = {}
         if actor is not None:
-            headers["authorization"] = f"Bearer {tokens[actor.user_id]}"
+            token = issue_token(actor.user_id, actor.email, actor.role, api.secret,
+                                name=actor.name)
+            headers["authorization"] = f"Bearer {token}"
         raw = json.dumps(body).encode("utf-8") if body else b""
         status, payload = api.handle(method, path, raw, headers)
         mark = "ok " if expect is None or status == expect else "BAD"

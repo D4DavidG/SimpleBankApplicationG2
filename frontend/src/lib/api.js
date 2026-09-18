@@ -57,6 +57,27 @@ export class ApiError extends Error {
   }
 }
 
+/* What to do when the server says the token is no good. AuthContext registers a
+ * function here on mount; until it does, a 401 still clears the stored token.
+ *
+ * A module-level slot rather than a prop, because `request` is called from
+ * everywhere and threading a callback through every page is exactly the kind of
+ * repetition that ends with one page forgetting.
+ */
+let onSessionEnded = null
+
+export function setSessionEndedHandler(fn) {
+  onSessionEnded = fn
+}
+
+/* Paths where a 401 is an ANSWER, not an expired session.
+ *
+ * A failed login is a 401 by design - it means "those credentials are wrong",
+ * not "your session ended" - so it must not tear down a session, and the form
+ * must be left to show the message itself.
+ */
+const CREDENTIAL_PATHS = ['/auth/login', '/auth/register']
+
 async function request(method, path, body) {
   const headers = {}
   const token = getToken()
@@ -78,7 +99,24 @@ async function request(method, path, body) {
     throw new ApiError(response.status, 'the server did not answer with JSON')
   }
 
-  if (!response.ok) throw new ApiError(response.status, payload.error ?? 'request failed')
+  if (!response.ok) {
+    /* A 401 on any other route means the token is gone, expired, or was signed
+     * with a key this server no longer has - restarting the backend without
+     * BANK_SECRET set does exactly that, so this is a normal Tuesday and not an
+     * edge case.
+     *
+     * Without this, the app kept rendering as though you were signed in - your
+     * name in the nav, the old account list on screen - while every request
+     * failed, and the reason arrived as a small red line next to whichever
+     * button you happened to press. Drop the dead token and let the guard send
+     * you to the sign-in form.
+     */
+    if (response.status === 401 && !CREDENTIAL_PATHS.some((p) => path.startsWith(p))) {
+      setToken(null)
+      onSessionEnded?.()
+    }
+    throw new ApiError(response.status, payload.error ?? 'request failed')
+  }
   return payload
 }
 

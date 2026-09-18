@@ -7,7 +7,7 @@ admin surface. Pure Python, standard library only. **Nothing to `pip install`.**
 python demo.py                     # walkthrough of every rule, no server needed
 python demo.py --step              # the same, paused between sections, for presenting
 python demo.py --step --mongo      # ... against Atlas, ending in a persistence proof
-python -m unittest -q              # 132 tests (16 Mongo ones skip without a cluster)
+python -m unittest -q              # 144 tests (16 Mongo ones skip without a cluster)
 python server.py                   # REST API on http://127.0.0.1:8000
 cd frontend && npm run dev         # React UI on http://localhost:5173 (needs the API up)
 python tools/export_postman.py     # regenerate postman_collection.json
@@ -45,7 +45,7 @@ list, and the conventions that will bite you. Frontend plan:
 
 | | |
 | --- | --- |
-| **Is here** | Domain model, business rules, in-memory repository, password hashing, database-backed session tokens, a REST API with 18 routes, role-based authorization, a persisted audit log, seed data, 132 tests, a MongoDB Atlas repository, a scripted demo, a generated Postman collection |
+| **Is here** | Domain model, business rules, in-memory repository, password hashing, signed JWT sessions, a REST API with 18 routes, role-based authorization, a persisted audit log, seed data, 144 tests, a MongoDB Atlas repository, a scripted demo, a generated Postman collection |
 | **Not here** | A database, a finished frontend, any third-party package on the Python side |
 
 The backend still imports nothing but the standard library, and
@@ -185,7 +185,7 @@ table is the index.
 | [bank/errors.py](bank/errors.py) | The domain exceptions. Business concepts, not HTTP codes. Every class is empty on purpose — the type *is* the information. |
 | [bank/models.py](bank/models.py) | `User`, `Account`, `Transaction`. `Account.balance` is a read-only property; `SavingsAccount` overrides `minimum_balance` so the withdrawal rule is polymorphic rather than an `if`. |
 | [bank/store.py](bank/store.py) | The repository. Dictionaries and lists behind method names a database will later implement. Owns the id sequences (`AUTO_INCREMENT`), the email uniqueness index, and the `client_txn_id` set. |
-| [bank/security.py](bank/security.py) | Password hashing (PBKDF2-HMAC-SHA256, salted, 600,000 rounds) and session token generation (256 opaque random bits; the session itself is a row in `tokens`). |
+| [bank/security.py](bank/security.py) | Password hashing (PBKDF2-HMAC-SHA256, salted, 600,000 rounds) and JSON Web Tokens (HS256 over base64url JSON, signature verified before the payload is parsed, algorithm pinned). |
 | [bank/services.py](bank/services.py) | **Every business rule.** Register, authenticate, open account, deposit, withdraw, transfer, history, freeze, adjust, reconcile. Takes a lock around anything that moves money. |
 | [bank/serializers.py](bank/serializers.py) | Domain objects to JSON dicts. Money goes out as **integer cents**. `password_hash` goes out never. |
 | [bank/api.py](bank/api.py) | The controller: the route table, the token check, the role check, the error-to-status map, and the `http.server` plumbing at the bottom. |
@@ -352,51 +352,80 @@ exactly the property an attacker wants.
 
 ### Sessions
 
-A session is a **row**, not a claim. `secrets.token_urlsafe(32)` produces the
-token — 256 random bits, opaque, meaning nothing — and it is stored in a `tokens`
-table where the token itself is the primary key:
+A **JSON Web Token**, hand-rolled in [bank/security.py](bank/security.py) because
+PyJWT is a third-party package and this submission installs nothing. Three
+base64url parts:
 
-| token (PK) | user_id | expires_at |
-| --- | --- | --- |
-| `Yb3k…` (43 chars) | 7 | 2026-09-17 14:05:00Z |
+```
+header.payload.signature
+```
 
-`user_id` is deliberately **not** unique. One person signed in on a phone and a
-laptop holds two tokens, and the second login must not disturb the first.
+| part | contents |
+| --- | --- |
+| header | `{"alg":"HS256","typ":"JWT"}` |
+| payload | `{"sub":7,"username":"aaron@…","name":"Aaron Forrester","role":"CUSTOMER","iat":…,"exp":…}` |
+| signature | `HMAC-SHA256(secret, "header.payload")` |
 
-Register and login both call `BankService.issue_token`, which is the only thing
-that writes a row, so a session can only be created next to a successful
-credential check. Every protected route calls `BankService.validate_token`, which
-does the reverse: look the token up, refuse it if the row is missing or
-`expires_at` has passed, and return the `User` read fresh from storage.
+**Base64 is encoding, not encryption.** Anyone holding the token can decode the
+payload and read every claim, with no key involved. A JWT keeps nothing secret,
+so nothing sensitive goes in one. What it provides is *integrity*: the signature
+is computed with a key only the server has, and HMAC is one-way, so **anybody can
+read the claims and only the server can write them.** A customer who decodes
+their token, edits `"role":"CUSTOMER"` to `"ADMIN"` and re-encodes it cannot
+produce a matching signature, and `read_token` rejects it.
 
-Three details worth defending:
+`read_token` does the two checks in the order that matters:
 
-- **Nothing in the token to forge.** It carries no user id and no role, so there
-  is no payload to edit and no signature to get wrong. Holding a valid token
-  means having been given one; guessing one means guessing 256 bits.
-- **The role is re-read on every request**, never carried by the token. An admin
-  demoted a minute ago is not still an admin for the rest of the week.
-- **Unknown, expired and orphaned all produce the same 401.** Saying which tells
-  somebody working through guesses how close they got.
+1. **Signature** — recompute the HMAC over the first two parts *as received* and
+   compare with `hmac.compare_digest`. Constant-time, because a normal `==`
+   returns as soon as two bytes differ and how long it takes leaks how much of a
+   forgery was right.
+2. **Expiration** — only now parse the payload and check `exp`.
 
-**Tokens live for one week** (`TOKEN_TTL_SECONDS`, the one constant to edit).
-That is long for a bank, and it is a demo decision rather than a security one: at
-an hour, a token saved in Postman or a tab left open over a weekend came back 401
-in the middle of showing something. It is affordable here because the session is
-a row — an hour was doing the work of revocation back when nothing could cancel
-a token, and now something can. A real deployment shortens it and adds a refresh
-lifecycle; that trade is in §13.
+Reversing that order means reading an `exp` the attacker chose.
 
-Against MongoDB the rows outlive a restart, so a saved Postman token keeps
-working, and a TTL index on `expires_at` lets the database delete expired
-sessions by itself. In memory they go when the process does.
+It also **pins the algorithm** rather than believing the header. The classic JWT
+break is `{"alg":"none"}` — a token declaring itself unsigned, which libraries
+used to accept. There is a test for it.
 
-**What this bought over the signed token it replaced:** a session that exists.
-A token the server never recorded is one it cannot cancel, list, or count —
-logging out could only ever mean "the browser forgets it". There is still no
-logout route (deleting the row is the whole implementation when one is wanted),
-but the table it would need is now there. The cost is one database read per
-authenticated request, which is the honest price of a session you can end.
+### The one thing a JWT cannot do
+
+**Be revoked.** The server signs a token and forgets it, so there is no record to
+delete; it is valid until it expires, whatever happens to the user meanwhile.
+That is the cost of being stateless, and it is why one rule is absolute here:
+
+> **The `role` claim is never what authorizes.** `api._authenticate` re-reads the
+> `User` from storage and checks the *stored* role. A user demoted an hour after
+> logging in still carries a signed token saying ADMIN — and loses their powers
+> on the very next request anyway.
+
+The claim exists so a client can render the right menu without a round trip.
+Nothing is decided by it.
+
+**Tokens live for one week** (`TOKEN_TTL_SECONDS`, the one constant to edit). A
+demo decision, not a security one: at an hour, a token saved in Postman or a tab
+left open over a weekend came back 401 mid-demonstration. Be clear what it costs,
+given the paragraph above — a leaked token is usable for a week and cannot be
+cancelled short of changing `BANK_SECRET`, which logs out every user at once.
+Acceptable for a graded project with a seeded roster; not for real money. §13 has
+the end state.
+
+### The signing key sets itself up
+
+`python server.py` generates a key on first run and appends it to your `.env`,
+which is gitignored. Tokens then survive a restart with no setup step, and the
+startup banner says whether the key was found or just created.
+
+**Each developer gets their own, and it is deliberately not shared.** A token is
+only ever presented to the server that signed it, and everybody runs their own
+backend on localhost, so a key that never leaves one machine works perfectly and
+is one fewer secret in a group chat. A deployed server is the case that needs a
+fixed key — it would set `BANK_SECRET` in its own environment, and
+[`config.ensure_secret`](bank/config.py) finds it already set and leaves it alone.
+
+Deleting the line issues a new key. That is also the only way to revoke a token
+early, and it revokes every token at once, since they were all signed with the
+old one.
 
 ### Ownership: the vulnerability in the brief as written
 
@@ -548,7 +577,7 @@ The service layer raises domain exceptions. `ERROR_STATUS` at the top of
 | --- | --- | --- |
 | `InvalidAmount` | **400** | Negative, zero, a float, a string, over the ceiling, not an int |
 | `ValueError` / `TypeError` | **400** | Missing field, unknown account type, admin reason too short |
-| *(no/invalid token)* | **401** | Missing, never issued, expired, or orphaned — one message for all four |
+| *(no/invalid token)* | **401** | Missing, malformed, wrong signature, or expired — one message for all four |
 | *(failed login)* | **401** | 401 means "authenticate"; 403 means "authenticating again will not help" |
 | `NotAuthorized` | **403** | Authenticated, but lacks the role |
 | `AccountNotFound` | **404** | No such account, **or** somebody else's account |

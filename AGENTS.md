@@ -24,11 +24,11 @@ feature nobody on the team can walk a room through is worse than no feature.
 
 | Layer | State |
 | --- | --- |
-| Domain, services, repository | Done. 132 tests, 16 skip without a Mongo cluster. |
+| Domain, services, repository | Done. 144 tests, 16 skip without a Mongo cluster. |
 | REST API | Done. 18 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
-| Auth | Done. Register, login, `/api/auth/me`, stored tokens, ADMIN role. |
+| Auth | Done. Register, login, `/api/auth/me`, signed JWTs, ADMIN role. |
 | Database | Done for MongoDB Atlas. In-memory fallback. **MySQL not started.** |
-| Frontend | Routing, auth, API layer, a public landing page, and 6 real pages (home, accounts, login, register, profile). 7 stubs left. |
+| Frontend | Routing, auth, API layer, and 11 real pages (home, accounts, account detail, transactions, open account, transaction menu, login, register, profile, admin). 3 stubs left: deposit, withdraw, transfer. |
 
 Run it: `python server.py` in one terminal, `cd frontend && npm run dev` in
 another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
@@ -125,14 +125,31 @@ creates an ADMIN; a wrong one is a 403 that creates nobody, which is what the
 frontend — grep the bundle and you will not find it — because a comparison
 written in JavaScript ships to the browser and stops nobody. See `api._role_for`.
 
-**A session token is a row, not a signature.** Login and register call
-`service.issue_token(user)`, which writes `{token, user_id, expires_at}` to the
-`tokens` table and hands the token back. Every protected route calls
-`service.validate_token(token)`, which looks it up, refuses an expired one, and
-returns the `User`. Do not build a token any other way in a test — one that
-skipped `issue_token` has no row, so it is nobody's. `BANK_SECRET` is gone:
-tokens are not signed and there is nothing left to sign them with. One user may
-hold several tokens, so `user_id` is not unique there.
+**Tokens are signed JWTs, and the `role` claim is not what authorizes.** A token
+is `header.payload.signature`; the payload carries `sub`, `username`, `name`,
+`role`, `iat` and `exp`, and is readable by anyone holding it — base64 is not
+encryption, so nothing sensitive goes in there. `read_token` checks the signature
+*before* it parses anything, then the expiry.
+
+The claim you must not trust is `role`. It is signed, so it has not been
+tampered with, but a JWT cannot be recalled and ours last a week, so a user
+demoted after logging in still carries a token saying ADMIN. `api._authenticate`
+therefore re-reads the `User` from storage and authorizes on the stored role.
+**Never authorize off `claims["role"]`.**
+
+There is no tokens table — signing replaced storing, so there is nothing to
+revoke and `BANK_SECRET` is load-bearing again. **You do not need to set it:**
+`server.py` generates one on first run and saves it to your gitignored `.env`, so
+tokens survive restarts out of the box. Yours is personal — do not paste it into
+the group chat and do not commit it. Only a deployed shared backend would need a
+fixed agreed key, and it would set the variable in its own environment.
+
+**A 401 ends the session, and only `lib/api.js` decides that.** Any 401 from any
+call clears the stored token and drops `user`, so the route guard sends you to
+the sign-in form — a token that stopped being accepted must not leave the UI
+claiming you are signed in while every request fails. Login and register are
+exempt, because a 401 there means "wrong password", not "your session ended". Do
+not add per-page 401 handling; it is done once in `request()`.
 
 **All backend code is standard library only.** `requirements.txt` exists for
 pymongo and nothing else. Keep it that way.
@@ -146,5 +163,5 @@ pymongo and nothing else. Keep it that way.
 | `bank/` | The backend. `api.py` has the route table; `services.py` has the rules. |
 | `APIDocs.txt` | The API contract. The frontend's source of truth. |
 | `frontend/` | React + Vite. See its README and PLAN. |
-| `test_*.py` | 132 tests. `python -m unittest -q`. |
+| `test_*.py` | 144 tests. `python -m unittest -q`. |
 | `tools/check_mongo.py` | Run when Atlas will not connect. It explains what failed. |

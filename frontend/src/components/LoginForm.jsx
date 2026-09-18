@@ -10,7 +10,7 @@ import { useAuth } from '../context/auth-context'
 import SecretInput from './SecretInput'
 
 export default function LoginForm({ onDone }) {
-  const { login } = useAuth()
+  const { login, sessionExpired } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(false)
@@ -32,6 +32,13 @@ export default function LoginForm({ onDone }) {
 
   return (
     <form onSubmit={handleSubmit}>
+      {/* Being bounced here mid-task with no explanation reads as a bug. This
+        * appears wherever the form does, including the home page, and only
+        * after a session that actually existed was rejected. */}
+      {sessionExpired && !error && (
+        <p className="hint">Your session has ended. Please sign in again.</p>
+      )}
+
       <div className="field-row">
         <label>
           Email

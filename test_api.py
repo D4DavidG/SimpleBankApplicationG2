@@ -18,7 +18,14 @@ A note on the fixture: it does NOT load the seed roster, because hashing the dem
 password costs about 0.6 seconds and these tests do not need 20 accounts. The
 seed gets one test class of its own.
 """
+import base64
+import hashlib
+import hmac
 import json
+import os
+import pathlib
+import shutil
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -28,10 +35,24 @@ from http.server import ThreadingHTTPServer
 from bank import BankAPI, BankService, BankStore
 from bank import seed as seed_module
 from bank.api import make_handler_class
+from bank.config import ensure_secret, load_env
 from bank.models import SavingsAccount
-from bank.security import hash_password, new_token, verify_password
+from bank.security import hash_password, issue_token, read_token, verify_password
 
 PASSWORD = "CorrectHorse1!"
+SECRET = "test-signing-secret-not-used-anywhere-real"
+
+
+def b64decode_padded(text: str) -> bytes:
+    """Decode a JWT part. The tests take apart tokens by hand on purpose - a
+    forgery built with the module's own helpers would not prove much."""
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def b64encode_json(obj) -> str:
+    """Encode a JWT part, for building tokens the real issuer would never emit."""
+    return base64.urlsafe_b64encode(
+        json.dumps(obj, separators=(",", ":")).encode()).decode().rstrip("=")
 
 # PBKDF2 at the production 600,000 rounds costs about 0.6 seconds per call, which
 # is the entire point of the setting and completely wrong for a test suite - at
@@ -54,7 +75,7 @@ class ApiTestCase(unittest.TestCase):
     def setUp(self):
         self.store = BankStore()
         self.svc = BankService(self.store)
-        self.api = BankAPI(self.svc)
+        self.api = BankAPI(self.svc, secret=SECRET)
 
         self.aaron = self.svc.register_user("Aaron Forrester", "aaron@example.com",
                                             password_hash=SHARED_HASH)
@@ -66,7 +87,6 @@ class ApiTestCase(unittest.TestCase):
         self.a_checking = self.svc.open_account(self.aaron, "CHECKING", 10000)
         self.a_savings = self.svc.open_account(self.aaron, "SAVINGS", 50000)
         self.e_checking = self.svc.open_account(self.erik, "CHECKING", 8421075)
-        self._tokens: dict[int, str] = {}   # see token_for
 
     def tearDown(self):
         """Same invariant as test_bank.py, asserted after every HTTP call too: no
@@ -77,16 +97,9 @@ class ApiTestCase(unittest.TestCase):
     # -- helpers ---------------------------------------------------------
 
     def token_for(self, user) -> str:
-        """A real session, through the service, not a hand-built string. Tokens
-        are stored rows now, so one that skipped `issue_token` would not exist as
-        far as `_authenticate` is concerned.
-
-        Cached per user, so a test making six calls holds one session rather than
-        six. A test that cares about issuing more than one calls the service.
-        """
-        if user.user_id not in self._tokens:
-            self._tokens[user.user_id] = self.svc.issue_token(user).token
-        return self._tokens[user.user_id]
+        """A genuine token for this user, signed with the fixture's secret."""
+        return issue_token(user.user_id, user.email, user.role, SECRET,
+                           name=user.name)
 
     def auth(self, user) -> dict:
         return {"authorization": f"Bearer {self.token_for(user)}"}
@@ -117,28 +130,132 @@ class TestAuthentication(ApiTestCase):
                                     {"authorization": "Bearer not-a-real-token"})
         self.assertEqual(status, 401)
 
-    def test_a_token_that_was_never_issued_is_rejected(self):
-        """A correctly shaped token that is not in the tokens table is nobody's.
+    def test_a_token_signed_with_another_key_is_rejected(self):
+        """The signature check, which is the whole point of signing.
 
-        This is what replaced the signature check. The token carries no claims to
-        forge, so the only way to hold one is to be given it: a well-formed guess
-        fails for the same reason "not-a-real-token" does, which is that the
-        lookup comes back empty.
+        A token minted by somebody who does not have our secret verifies against
+        their key and not ours, so `read_token` refuses it before it reads a
+        single claim - even though the claims inside are perfectly well formed
+        and say ADMIN.
         """
+        forged = issue_token(self.aaron.user_id, self.aaron.email, "ADMIN",
+                             "a-different-secret", name=self.aaron.name)
         status, _ = self.api.handle("GET", "/api/admin/users", b"",
-                                    {"authorization": f"Bearer {new_token()}"})
+                                    {"authorization": f"Bearer {forged}"})
+        self.assertEqual(status, 401)
+
+    def test_editing_the_payload_breaks_the_signature(self):
+        """Promoting yourself by hand, which is what the signature prevents.
+
+        Decode the payload - anyone can, it is only base64 - change the role to
+        ADMIN, re-encode, and reattach the original signature. The server
+        recomputes the HMAC over the payload it received, gets something else,
+        and answers 401.
+        """
+        token = self.token_for(self.aaron)
+        header_b64, payload_b64, signature_b64 = token.split(".")
+
+        claims = json.loads(b64decode_padded(payload_b64))
+        self.assertEqual(claims["role"], "CUSTOMER")   # readable without any key
+        claims["role"] = "ADMIN"
+        tampered = base64.urlsafe_b64encode(
+            json.dumps(claims, separators=(",", ":")).encode()).decode().rstrip("=")
+
+        forged = f"{header_b64}.{tampered}.{signature_b64}"
+        status, _ = self.api.handle("GET", "/api/admin/users", b"",
+                                    {"authorization": f"Bearer {forged}"})
+        self.assertEqual(status, 401)
+
+    def test_an_unsigned_alg_none_token_is_rejected(self):
+        """The classic JWT break: a token claiming it needs no signature.
+
+        Libraries used to read `alg` out of the header and believe it. This one
+        pins HS256, so the forgery fails the signature check like any other.
+        """
+        def b64(obj):
+            return base64.urlsafe_b64encode(
+                json.dumps(obj, separators=(",", ":")).encode()).decode().rstrip("=")
+
+        forged = (f"{b64({'alg': 'none', 'typ': 'JWT'})}."
+                  f"{b64({'sub': self.aaron.user_id, 'role': 'ADMIN', 'exp': 9999999999})}.")
+        status, _ = self.api.handle("GET", "/api/admin/users", b"",
+                                    {"authorization": f"Bearer {forged}"})
         self.assertEqual(status, 401)
 
     def test_an_expired_token_is_rejected(self):
-        expired = self.svc.issue_token(self.aaron, ttl=-1).token
-        # The row is still there; what fails is the expiry check, not the lookup.
-        self.assertIsNotNone(self.store.find_token(expired))
+        expired = issue_token(self.aaron.user_id, self.aaron.email,
+                              self.aaron.role, SECRET, ttl=-1)
+        # The signature is perfectly valid; it is `exp` that fails.
+        self.assertIsNone(read_token(expired, SECRET))
         status, _ = self.api.handle("GET", "/api/accounts", b"",
                                     {"authorization": f"Bearer {expired}"})
         self.assertEqual(status, 401)
 
+    def test_a_malformed_exp_is_401_and_not_a_crash(self):
+        """`read_token` must never raise - a bad token is a 401, not a 400 or 500.
+
+        An `exp` that is a string rather than a number used to reach
+        `"9999999999" < time.time()`, which raises TypeError; that escaped the
+        validator and ERROR_STATUS turned it into 400 "invalid request". Only
+        something holding the signing key could mint such a token, so this was
+        never a live hole - but a validator that can raise is one whose "None
+        means no" contract does not hold.
+        """
+        header_b64 = b64encode_json({"alg": "HS256", "typ": "JWT"})
+        for bad_exp in ("9999999999", True, None, [], {"a": 1}):
+            with self.subTest(exp=bad_exp):
+                payload_b64 = b64encode_json(
+                    {"sub": self.aaron.user_id, "role": "ADMIN", "exp": bad_exp})
+                signing_input = f"{header_b64}.{payload_b64}"
+                signature = base64.urlsafe_b64encode(
+                    hmac.new(SECRET.encode(), signing_input.encode("ascii"),
+                             hashlib.sha256).digest()).decode().rstrip("=")
+
+                token = f"{signing_input}.{signature}"
+                self.assertIsNone(read_token(token, SECRET))
+                status, _ = self.api.handle("GET", "/api/accounts", b"",
+                                            {"authorization": f"Bearer {token}"})
+                self.assertEqual(status, 401)
+
+    def test_the_token_carries_username_role_and_expiry(self):
+        """The claims the requirements ask for, read straight back out."""
+        _, body = self.post("/api/auth/login",
+                            {"email": "aaron@example.com", "password": PASSWORD})
+        claims = read_token(body["token"], SECRET)
+        self.assertEqual(claims["sub"], self.aaron.user_id)
+        self.assertEqual(claims["username"], "aaron@example.com")
+        self.assertEqual(claims["name"], "Aaron Forrester")
+        self.assertEqual(claims["role"], "CUSTOMER")
+        self.assertGreater(claims["exp"], claims["iat"])
+        self.assertEqual(body["expiresIn"], claims["exp"] - claims["iat"])
+
+    def test_a_token_is_three_base64_parts(self):
+        """It is a real JWT, not a lookalike: header.payload.signature, and the
+        header names the algorithm the server actually used."""
+        header_b64, _, signature_b64 = self.token_for(self.aaron).split(".")
+        self.assertEqual(json.loads(b64decode_padded(header_b64)),
+                         {"alg": "HS256", "typ": "JWT"})
+        self.assertTrue(signature_b64)
+
+    def test_the_role_claim_is_not_what_authorizes(self):
+        """The property the stale-claim problem is solved by.
+
+        Aaron logs in as a customer, is promoted, and his OLD token - still
+        saying CUSTOMER, still signed, still valid - opens an admin route,
+        because the role is re-read from storage on every request.
+        """
+        token = self.token_for(self.aaron)
+        self.assertEqual(read_token(token, SECRET)["role"], "CUSTOMER")
+
+        self.aaron.role = "ADMIN"           # promoted in storage, not in the token
+
+        status, _ = self.api.handle("GET", "/api/admin/users", b"",
+                                    {"authorization": f"Bearer {token}"})
+        self.assertEqual(status, 200)
+        self.assertEqual(read_token(token, SECRET)["role"], "CUSTOMER")
+
     def test_a_token_is_bound_to_the_user_it_was_issued_for(self):
-        """Erik's session reads Erik's profile and cannot become Aaron's."""
+        """Erik's token reads Erik's profile and cannot become Aaron's."""
         status, me = self.api.handle("GET", "/api/auth/me", b"",
                                      {"authorization": f"Bearer {self.token_for(self.erik)}"})
         self.assertEqual(status, 200)
@@ -152,47 +269,6 @@ class TestAuthentication(ApiTestCase):
                                      {"authorization": f"Bearer {body['token']}"})
         self.assertEqual(status, 200)
         self.assertEqual(me["user"]["email"], "aaron@example.com")
-
-    def test_login_saves_the_token_against_the_user(self):
-        """The token the client is handed is a row in the tokens table, and that
-        row names the user it belongs to and when it stops working."""
-        _, body = self.post("/api/auth/login",
-                            {"email": "aaron@example.com", "password": PASSWORD})
-        session = self.store.find_token(body["token"])
-        self.assertIsNotNone(session)
-        self.assertEqual(session.user_id, self.aaron.user_id)
-        self.assertFalse(session.is_expired())
-        self.assertGreater(body["expiresIn"], 0)
-
-    def test_register_saves_a_token_too(self):
-        status, body = self.post("/api/auth/register", {
-            "name": "New Person", "email": "new@example.com", "password": PASSWORD,
-        })
-        self.assertEqual(status, 201)
-        session = self.store.find_token(body["token"])
-        self.assertIsNotNone(session)
-        self.assertEqual(session.user_id, body["user"]["userId"])
-
-    def test_one_user_may_hold_several_tokens_at_once(self):
-        """A phone and a laptop are two sessions. Logging in on the second must
-        not invalidate the first, which is why user_id is not unique in the
-        tokens table."""
-        first = self.token_for(self.aaron)
-        _, body = self.post("/api/auth/login",
-                            {"email": "aaron@example.com", "password": PASSWORD})
-        second = body["token"]
-        self.assertNotEqual(first, second)
-        for token in (first, second):
-            status, _ = self.api.handle("GET", "/api/accounts", b"",
-                                        {"authorization": f"Bearer {token}"})
-            self.assertEqual(status, 200)
-
-    def test_two_tokens_are_never_the_same_string(self):
-        """The token is the primary key, so a repeat would collide with a live
-        session. 200 samples is not a proof of randomness - it is a guard against
-        the token accidentally becoming derived from the user or the second."""
-        issued = {self.svc.issue_token(self.aaron).token for _ in range(200)}
-        self.assertEqual(len(issued), 200)
 
     def test_a_failed_login_is_401_not_403(self):
         """401 means 'authenticate'. 403 means 'authenticating again will not help'."""
@@ -238,6 +314,88 @@ class TestAuthentication(ApiTestCase):
         self.assertEqual(status, 409)
 
 
+class TestSigningKeySetup(unittest.TestCase):
+    """`config.ensure_secret` writes to .env, so the hazards are file hazards.
+
+    Every test here passes an explicit path. None of them can touch the real
+    `.env`, which is the developer's own and holds their MongoDB settings.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.env = pathlib.Path(self.dir) / ".env"
+        self.saved = os.environ.pop("BANK_SECRET", None)
+
+    def tearDown(self):
+        shutil.rmtree(self.dir, ignore_errors=True)
+        os.environ.pop("BANK_SECRET", None)
+        if self.saved is not None:
+            os.environ["BANK_SECRET"] = self.saved
+
+    def test_the_first_run_creates_and_saves_a_key(self):
+        secret, origin = ensure_secret(self.env)
+        self.assertEqual(origin, "created")
+        self.assertGreater(len(secret), 20)
+        self.assertIn(f"BANK_SECRET={secret}", self.env.read_text(encoding="utf-8"))
+
+    def test_the_next_run_reads_the_same_key_back(self):
+        """The whole point: a restart must not invalidate everybody's token."""
+        first, _ = ensure_secret(self.env)
+        os.environ.pop("BANK_SECRET", None)      # a fresh process
+
+        load_env(self.env)
+        second, origin = ensure_secret(self.env)
+        self.assertEqual(origin, "environment")
+        self.assertEqual(first, second)
+
+    def test_running_repeatedly_does_not_append_a_second_key(self):
+        """Two BANK_SECRET lines would mean the file's meaning depends on which
+        one load_env happened to read first."""
+        for _ in range(3):
+            os.environ.pop("BANK_SECRET", None)
+            load_env(self.env)
+            ensure_secret(self.env)
+        keys = [line for line in self.env.read_text(encoding="utf-8").splitlines()
+                if line.startswith("BANK_SECRET=")]
+        self.assertEqual(len(keys), 1)
+
+    def test_an_env_file_with_no_trailing_newline_is_not_corrupted(self):
+        """Appending to a file whose last line has no newline would glue the key
+        onto it, silently destroying whatever that setting was."""
+        self.env.write_text("MONGODB_DB=simple_bank_someone", encoding="utf-8")
+        ensure_secret(self.env)
+
+        os.environ.pop("BANK_SECRET", None)
+        os.environ.pop("MONGODB_DB", None)
+        load_env(self.env)
+        self.assertEqual(os.environ.get("MONGODB_DB"), "simple_bank_someone")
+        self.assertTrue(os.environ.get("BANK_SECRET"))
+        os.environ.pop("MONGODB_DB", None)
+
+    def test_a_key_already_in_the_environment_wins_and_nothing_is_written(self):
+        """A deployment sets BANK_SECRET itself. Overwriting it would sign out
+        every user on that server at the moment of a restart."""
+        os.environ["BANK_SECRET"] = "set-by-the-deployment"
+        secret, origin = ensure_secret(self.env)
+        self.assertEqual((secret, origin), ("set-by-the-deployment", "environment"))
+        self.assertFalse(self.env.exists())
+
+    def test_an_unwritable_location_degrades_instead_of_crashing(self):
+        """A read-only checkout must still start the server. The key then lasts
+        for this process only, which is the behaviour from before it was saved."""
+        secret, origin = ensure_secret(pathlib.Path(self.dir) / "nope" / ".env")
+        self.assertEqual(origin, "unwritable")
+        self.assertGreater(len(secret), 20)
+
+    def test_two_developers_get_different_keys(self):
+        """They are personal, not shared. Nothing coordinates them, and a token
+        signed by one machine is not meant to work against another."""
+        alice, _ = ensure_secret(self.env)
+        os.environ.pop("BANK_SECRET", None)
+        bob, _ = ensure_secret(pathlib.Path(self.dir) / ".env-on-another-machine")
+        self.assertNotEqual(alice, bob)
+
+
 class TestAdminRegistration(ApiTestCase):
     """Registering as an admin: only with the code, and only if one is set."""
 
@@ -245,7 +403,7 @@ class TestAdminRegistration(ApiTestCase):
 
     def open_api(self):
         """A second API over the same service, with admin registration open."""
-        return BankAPI(self.svc, admin_code=self.ADMIN_CODE)
+        return BankAPI(self.svc, secret=SECRET, admin_code=self.ADMIN_CODE)
 
     @staticmethod
     def register(api, email, code=None):
@@ -834,7 +992,7 @@ class TestLiveServer(unittest.TestCase):
                                      password_hash=SHARED_HASH)
         cls.account = svc.open_account(cls.user, "CHECKING", 25000)
 
-        api = BankAPI(svc)
+        api = BankAPI(svc, secret=SECRET)
         # Port 0 asks the OS for any free port, so the suite never collides with
         # a server the developer already has running on 8000.
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0),
