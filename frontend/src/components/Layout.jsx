@@ -1,6 +1,8 @@
 /* The frame every page renders inside: nav bar at the top, page below. */
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import { useAuth } from '../context/auth-context'
+import { activeTheme, applyTheme } from '../lib/theme'
 
 export default function Layout() {
   const { user, accounts, logout, isAdmin } = useAuth()
@@ -12,6 +14,16 @@ export default function Layout() {
    * the bar is painted with --navy, so nothing below has to know about this. */
   const adminContext = isAdmin || location.pathname.startsWith('/admin')
   const hasAccounts = accounts.length > 0
+
+  // Read once on mount: after that this component owns the value, and the only
+  // thing that changes it is the button below.
+  const [theme, setTheme] = useState(activeTheme)
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    applyTheme(next)
+    setTheme(next)
+  }
 
   function handleLogout() {
     logout()
@@ -51,6 +63,13 @@ export default function Layout() {
         </nav>
 
         <div className="nav-user">
+          {/* Says what pressing it does, not what the page currently is - a
+              button labelled "Dark" while the page is already dark is the
+              commonest way to get this wrong. */}
+          <button type="button" className="theme-toggle" onClick={toggleTheme}
+                  aria-pressed={theme === 'dark'}>
+            {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          </button>
           {user ? (
             <>
               {/* The name is the way into the profile - the usual place to look. */}

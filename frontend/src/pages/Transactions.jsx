@@ -89,7 +89,7 @@ export default function Transactions({ accountId: accountIdProp }) {
         <p>No transactions yet.</p>
       ) : (
         <>
-          <table>
+          <table className="ledger">
             <thead>
               <tr>
                 <th>Date</th>
@@ -112,21 +112,19 @@ export default function Transactions({ accountId: accountIdProp }) {
             </tbody>
           </table>
 
-          <div className="row" style={{ justifyContent: 'space-between', marginTop: '1rem' }}>
-            <button type="button" className="secondary" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+          <div className="row pager">
+            <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
               Previous
             </button>
             <span className="hint">Page {page} of {totalPages}</span>
-            <button type="button" className="secondary" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+            <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
               Next
             </button>
           </div>
         </>
       )}
 
-      <p style={{ marginTop: '1rem' }}>
-        <Link to={`/accounts/${accountId}`}>Back to account</Link>
-      </p>
+      <Link className="back-link" to={`/accounts/${accountId}`}>Back to account</Link>
     </div>
   )
 }

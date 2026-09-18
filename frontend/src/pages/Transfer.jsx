@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/auth-context'
 import * as api from '../lib/api'
 import { formatCents, parseDollars } from '../lib/money'
+import { accountLabel } from '../lib/accounts'
 import UserSearch from '../components/UserSearch'
 
 export default function Transfer() {
@@ -79,7 +80,7 @@ export default function Transfer() {
           <select value={fromId} onChange={(e) => setFromId(e.target.value)}>
             {accounts.map((a) => (
               <option key={a.accountId} value={a.accountId}>
-                {a.accountType} — {formatCents(a.balance)}
+                {accountLabel(a)} — {formatCents(a.balance)}
               </option>
             ))}
           </select>
