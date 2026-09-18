@@ -471,6 +471,25 @@ class MongoStore:
         result = list(self._transactions.aggregate(pipeline, session=self._session))
         return int(result[0]["total"]) if result else 0
 
+    @_guarded
+    def ledger_sums(self) -> dict[int, int]:
+        """See BankStore.ledger_sums. One aggregation for the whole ledger.
+
+        The per-account version is correct and was being called in a loop, which
+        made reconciliation cost one round trip per account - about 2.8 seconds
+        for 37 of them, and growing with every account opened. Grouping by
+        account_id instead asks the same question once.
+        """
+        pipeline = [
+            {"$group": {"_id": "$account_id", "total": {"$sum": {"$cond": [
+                {"$in": ["$txn_type", sorted(CREDIT_TYPES)]},
+                "$amount",
+                {"$multiply": ["$amount", -1]},
+            ]}}}},
+        ]
+        return {int(doc["_id"]): int(doc["total"])
+                for doc in self._transactions.aggregate(pipeline, session=self._session)}
+
     # ---- audit log ----
 
     @_guarded

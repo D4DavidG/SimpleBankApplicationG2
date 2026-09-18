@@ -197,6 +197,20 @@ class BankStore:
                 total += txn.signed_amount
         return total
 
+    def ledger_sums(self) -> dict[int, int]:
+        """Every account's ledger total at once, keyed by account id.
+
+        `reconcile_all` used to call `ledger_sum` per account. In memory that is
+        the same work either way; against a database it was one round trip per
+        account, and the admin page paid 37 of them. An account with no entries
+        is absent rather than zero, which callers read with `.get(id, 0)` - the
+        same answer `ledger_sum` gives for one.
+        """
+        totals: dict[int, int] = {}
+        for txn in self._transactions:
+            totals[txn.account_id] = totals.get(txn.account_id, 0) + txn.signed_amount
+        return totals
+
     # ---- audit log ----
 
     def add_audit_entry(self, actor_user_id: int, action: str,

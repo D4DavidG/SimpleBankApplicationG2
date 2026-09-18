@@ -435,11 +435,15 @@ class BankService:
 
     def reconcile_all(self) -> list[tuple[int, int, int]]:
         """Every account that fails reconciliation. Should always be empty."""
+        # One call for every total, not one per account. `reconcile()` is still
+        # the right thing for a single account; doing it in a loop meant a round
+        # trip each, which is what made this the slowest endpoint in the app.
+        sums = self.store.ledger_sums()
         broken = []
         for account in self.store.all_accounts():
-            stored, ledger = self.reconcile(account.account_id)
-            if stored != ledger:
-                broken.append((account.account_id, stored, ledger))
+            ledger = sums.get(account.account_id, 0)
+            if account.balance != ledger:
+                broken.append((account.account_id, account.balance, ledger))
         return broken
 
     # -------------------------------------------------------------- internals

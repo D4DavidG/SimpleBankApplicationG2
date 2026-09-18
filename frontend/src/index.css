@@ -27,6 +27,14 @@
    * is what makes a dark mode unreadable. */
   --navy: #003b70;         /* 11.29:1 with white  - nav, primary buttons */
   --brand-ink: #003b70;    /* 11.29:1 on surface  - headings */
+
+  /* The staff red, as INK rather than as a fill. Kept at :root and not inside
+   * .theme-admin because the audit log also appears on an admin's home page,
+   * which is not inside that class - the action labels have to be readable
+   * there too. Themed below, which is the whole reason it is a token. */
+  --admin-ink: #9e1b13;          /*  8.02:1 on surface - staff headings, audit actions */
+  --admin-bg: #fdf6f5;
+  --admin-field-border: #8a6b68; /*  4.79:1 on surface, past the 3:1 minimum */
   --blue: #056dae;         /* 5.52:1 both ways    - links, focus rings */
   --red: #d9261c;          /*  4.95:1 with white  - errors, debits */
   --green: #0a7d3f;        /*  5.23:1 on white    - credits */
@@ -295,10 +303,17 @@ code { background: var(--bg); padding: 0.1rem 0.3rem; border-radius: 3px; font-s
  * adjust balances.
  */
 .theme-admin {
-  --navy: #9e1b13;         /* 8.02:1 with white - headings, buttons, nav bar */
-  --blue: #8c1109;         /* 9.55:1 with white - links, focus rings */
-  --field-border: #8a6b68; /* 4.79:1 on surface, past the 3:1 minimum */
-  --bg: #fdf6f5;
+  /* --navy is the FILL white text sits on - the nav bar and buttons - so it
+   * stays dark in both themes: white on it is 8.02:1 either way.
+   *
+   * Everything read AS text maps to the themed tokens above, which is what was
+   * missing: these used to be hard-coded light-mode values, so in dark mode the
+   * headings and the audit actions came out at 1.95:1 on a dark surface. */
+  --navy: #9e1b13;         /* 8.02:1 with white - buttons, nav bar */
+  --brand-ink: var(--admin-ink);
+  --blue: var(--admin-ink);
+  --field-border: var(--admin-field-border);
+  --bg: var(--admin-bg);
 }
 
 
@@ -984,6 +999,12 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
     --brand-ink: #22d3ee;     /* 8.67:1 on surface - headings */
     --blue: #38bdf8;          /* 7.31:1 on surface - links */
     --red: #f87171;           /* 5.66:1 on surface */
+    /* #9e1b13 as text on this surface is 1.95:1 - invisible, and the reason
+     * the staff pages were unreadable in dark mode. This is 8.25:1, and a
+     * shade off --red so an error still reads as an error next to it. */
+    --admin-ink: #fca5a5;     /* 8.25:1 on surface */
+    --admin-bg: #1b1316;
+    --admin-field-border: #a08582; /* 4.60:1 on surface */
     --green: #4ade80;         /* 8.99:1 on surface */
     --danger: #b3231a;
 
@@ -1017,6 +1038,9 @@ dialog .row { margin-top: 1rem; flex-wrap: wrap; }
   --brand-ink: #22d3ee;
   --blue: #38bdf8;
   --red: #f87171;
+  --admin-ink: #fca5a5;          /* see the note in the media-query block above */
+  --admin-bg: #1b1316;
+  --admin-field-border: #a08582;
   --green: #4ade80;
   --danger: #b3231a;
 
