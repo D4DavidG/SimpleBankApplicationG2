@@ -28,6 +28,7 @@ feature nobody on the team can walk a room through is worse than no feature.
 | REST API | Done. 19 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
 | Auth | Done. Register, login, `/api/auth/me`, stored tokens, ADMIN role. |
 | Database | Done for MongoDB Atlas. In-memory fallback. **MySQL not started.** |
+| Deployment | Runbook written, `deploy/`. AWS console walkthrough not yet run end to end. |
 | Frontend | Every screen in brief §7 is built. Routing, auth, API layer, credit accounts, pay-a-person, and the admin console. No stubs left. |
 
 Run it: `python server.py` in one terminal, `cd frontend && npm run dev` in
@@ -70,7 +71,12 @@ another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
 - [ ] **AI assistant.** Read-only,
       three tools, session-scoped. Behind a flag so an unfinished one is switched
       off and the demo is unaffected.
-- [ ] **Deployment**, if the program expects it. Unconfirmed.
+- [x] **Deployment.** Confirmed: phase 08-B. Runbook in `deploy/DEPLOY.md`.
+      CloudFront in front of both an S3 bucket (the React build) and an EC2
+      instance (`/api/*`), so the browser sees one origin and `lib/api.js` keeps
+      its relative `/api` base. Atlas stays as the database - the phase allows a
+      "managed MongoDB cluster" and DocumentDB does not support the partial
+      index that makes `clientTxnId` idempotent.
 
 ### Deliberately not doing
 
@@ -92,7 +98,10 @@ authoritative account beside the transaction. Render that.
 
 **Ownership is checked server-side on every account-scoped route**, and an
 account belonging to someone else reads as 404, not 403. Do not add a route that
-takes an account id without going through `service.get_account_for`.
+takes an account id without going through `service.get_account_for`. This is
+also why the CloudFront distribution has no custom error responses: they apply
+to every behaviour, so the usual SPA 404->index.html rule would turn "not yours"
+into a 200. See `deploy/DEPLOY.md` step 7.
 
 **An admin holds no accounts.** The role is supervisory - freeze, adjust,
 read the audit log - and every one of those powers is over somebody else's

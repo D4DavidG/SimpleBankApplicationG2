@@ -783,12 +783,18 @@ class BankAPI:
 # knows about sockets, and it is the only part that changes under FastAPI.
 # ===========================================================================
 
-def make_handler_class(api: BankAPI, cors: bool = True, quiet: bool = False):
+def make_handler_class(api: BankAPI, cors: bool = True, quiet: bool = False,
+                       origin: str = "*"):
     """Build a request handler class bound to one BankAPI instance.
 
     A closure rather than a constructor argument because `http.server`
     instantiates the handler class itself, once per request, and gives us no
     opportunity to pass anything in.
+
+    `origin` is what goes in Access-Control-Allow-Origin. It defaults to `*`,
+    which is right for development, where the Vite dev server is on another
+    port. A deployed backend should name the one site allowed to call it - see
+    BANK_CORS_ORIGIN in server.py.
     """
 
     class BankRequestHandler(BaseHTTPRequestHandler):
@@ -831,7 +837,14 @@ def make_handler_class(api: BankAPI, cors: bool = True, quiet: bool = False):
                 # `*` is fine while tokens travel in a header. It would NOT be
                 # fine with cookie-based sessions, where it must name the exact
                 # origin and set Access-Control-Allow-Credentials.
-                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Origin", origin)
+                if origin != "*":
+                    # The answer now depends on who asked, so any cache in front
+                    # of us has to key on it. Ours is one fixed origin rather
+                    # than an echo of the request, so this is belt and braces -
+                    # but a cache that served one site's response to another is
+                    # the kind of bug you only find in production.
+                    self.send_header("Vary", "Origin")
                 self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.end_headers()
@@ -853,7 +866,8 @@ def make_handler_class(api: BankAPI, cors: bool = True, quiet: bool = False):
 
 
 def serve(service, host: str = "127.0.0.1", port: int = 8000,
-          secret: str | None = None, admin_code: str | None = None) -> None:
+          secret: str | None = None, admin_code: str | None = None,
+          origin: str = "*") -> None:
     """Start the API. Blocks until Ctrl+C.
 
     ThreadingHTTPServer, not HTTPServer: the single-threaded version handles one
@@ -862,7 +876,8 @@ def serve(service, host: str = "127.0.0.1", port: int = 8000,
     runs on the same execution model the rules were written for.
     """
     api = BankAPI(service, secret, admin_code)
-    httpd = ThreadingHTTPServer((host, port), make_handler_class(api))
+    httpd = ThreadingHTTPServer((host, port),
+                                make_handler_class(api, origin=origin))
     print(f"  Simple Bank API listening on http://{host}:{port}")
     print(f"  {len(api.routes)} routes. Try: GET http://{host}:{port}/api/health")
     try:

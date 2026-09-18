@@ -145,6 +145,15 @@ def main(argv=None) -> int:
     else:
         print("  signing key:    random for this process; .env could not be written")
         print("                  (every token stops working when you restart)")
+    # Which site may call this API from a browser. Left unset it is `*`, which
+    # is what development needs: the Vite dev server is on another port, so
+    # every call is cross-origin. A deployed backend sets this to the one site
+    # it serves, so a page on any other origin is refused by the browser.
+    cors_origin = os.environ.get("BANK_CORS_ORIGIN", "").strip() or "*"
+    if cors_origin == "*":
+        print("  CORS:           any origin (set BANK_CORS_ORIGIN to restrict)")
+    else:
+        print(f"  CORS:           {cors_origin} only")
     admin_code = os.environ.get("BANK_ADMIN_CODE", "").strip()
     if admin_code:
         print("  admin code:     set, so POST /api/auth/register accepts adminCode")
@@ -154,7 +163,7 @@ def main(argv=None) -> int:
     print()
 
     serve(service, host=args.host, port=args.port, secret=secret,
-          admin_code=admin_code)
+          admin_code=admin_code, origin=cors_origin)
     return 0
 
 

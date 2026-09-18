@@ -1,0 +1,43 @@
+# systemd unit for the Simple Bank API.
+#
+# Install to /etc/systemd/system/bank-api.service. What this buys over running
+# `python server.py` in an SSH session is the thing that matters on a deployed
+# box: the API comes back by itself. It restarts if it crashes, and it starts
+# again when the instance reboots, so a stopped/started EC2 instance is still
+# serving without anybody logging in.
+[Unit]
+Description=Simple Bank API
+# network-online, not just network: the first thing the app does is dial Atlas,
+# and a DNS lookup at boot fails if it runs before the network is actually up.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bankapi
+Group=bankapi
+WorkingDirectory=/opt/simplebank
+
+# Written at boot by bootstrap.sh from SSM Parameter Store. Secrets live there,
+# not in this file and not in the repo - this file is committed, that one is not.
+EnvironmentFile=/etc/simplebank/bank.env
+
+# --host 0.0.0.0 because the default 127.0.0.1 would accept only connections
+# from the instance itself, and CloudFront is not on the instance.
+ExecStart=/opt/simplebank/.venv/bin/python server.py --host 0.0.0.0 --port 8000
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bank-api
+
+# The process reads its config from the environment and writes nothing to disk,
+# so nothing here costs it anything.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -126,6 +126,7 @@ replacing `store.py` and nothing else.
 | `frontend/src/pages/`, `frontend/src/components/` | One page per file; `App.jsx` has every route. |
 | `APIDocs.txt` | The full API contract. The frontend's source of truth. |
 | `tools/check_mongo.py` | Seven checks that this machine can use Atlas. |
+| `deploy/` | AWS deployment: the runbook, the EC2 bootstrap script, the systemd unit. |
 | `AGENTS.md` | Current state, TODO list, conventions. Read before starting work. |
 
 ---
@@ -215,6 +216,7 @@ required to run.
 | `BANK_ADMIN_CODE` | Shared code that lets someone register as an ADMIN. Unset means admin registration is closed. Compared server-side only — it never reaches the browser. |
 | `MONGODB_URI` | Atlas connection string. **Setting it is the switch** to MongoDB; there is no `--mongo` flag, and `--memory` is the way back. |
 | `MONGODB_DB` | Which database in the cluster. Required whenever `MONGODB_URI` is set — the server refuses to start rather than guess. |
+| `BANK_CORS_ORIGIN` | Which site may call the API from a browser. Unset means `*`, which is what development needs. A deployed backend names its one site. |
 
 A real environment variable always wins over the file, so
 `MONGODB_DB=simple_bank_scratch python server.py` overrides it for one run.
@@ -281,6 +283,18 @@ checklist to run before a demo.
 
 ---
 
+## Deployment
+
+Runbook: **`deploy/DEPLOY.md`**. One CloudFront distribution in front of two
+origins - an S3 bucket holding the React build, and an EC2 instance serving
+`/api/*`. Because the browser sees a single origin, `lib/api.js` keeps its
+relative `/api` base and the frontend needs no build-time API URL.
+
+Secrets come from SSM Parameter Store at boot, so nothing sensitive is baked
+into the instance or the repo. The database stays MongoDB Atlas.
+
+---
+
 ## Not done yet
 
 - **MySQL.** The brief says MySQL "to be confirmed" while the syllabus teaches
@@ -290,6 +304,8 @@ checklist to run before a demo.
 - **Deliberately skipped:** refresh tokens, httpOnly cookie sessions, login rate
   limiting. All are the right end state; none is graded.
 
-`http.server` is single-threaded and is not a production server. It is the right
-choice here because it ships with Python, which is what keeps the backend
-installable with zero setup.
+`http.server` is not a production server - the standard library says so itself.
+It is the right choice here because it ships with Python, which is what keeps the
+backend installable with zero setup. `serve()` does use `ThreadingHTTPServer`, so
+requests are handled in parallel and the lock in `BankService` is doing real
+work; what it is not is hardened, and it is one process.
