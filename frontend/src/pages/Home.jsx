@@ -99,7 +99,9 @@ function Dashboard() {
 
   return (
     <div>
-      <h1>Welcome back, {user.name}</h1>
+      {/* Staff red for an admin, ordinary brand ink for a customer. This page
+          is outside .theme-admin, so it does not pick the red up on its own. */}
+      <h1 className={isAdmin ? 'staff-heading' : undefined}>Welcome back, {user.name}</h1>
 
       {/* Same offer as the landing page, without the sign-in form beside it.
           Not shown to an admin: it is a customer acquisition offer, and an

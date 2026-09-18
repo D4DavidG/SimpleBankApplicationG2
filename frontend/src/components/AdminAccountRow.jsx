@@ -71,7 +71,8 @@ export default function AdminAccountRow({ account, onChanged }) {
   return (
     <div className="card">
       <p>
-        <strong>{account.accountType}</strong> #{account.accountId} — {account.userName}{' '}
+        <strong className="admin-account-type">{account.accountType}</strong>{' '}
+        #{account.accountId} — {account.userName}{' '}
         <span className="balance">{formatCents(account.balance)}</span>{' '}
         {/* The word, not just the colour: red alone is not a status. */}
         {frozen && <span className="badge">FROZEN</span>}

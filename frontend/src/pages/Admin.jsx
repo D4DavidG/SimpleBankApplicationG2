@@ -48,19 +48,29 @@ export default function Admin() {
    * reconciliation that counts it. Refreshing only the row that changed would
    * leave the other two quietly stale, and a stale reconciliation is worse than
    * none - it is a correctness claim about numbers it has not re-read. */
-  const load = useCallback(
-    () =>
-      Promise.all([api.adminAccounts(), api.adminAudit(), api.adminReconciliation(), refreshAccounts()])
-        .then(([accountList, audit, reconciliation]) => {
-          setAccounts(accountList.accounts)
-          setEntries(audit.entries)
-          setReport(reconciliation)
-          setError(null)
-        })
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false)),
-    [refreshAccounts],
-  )
+  const load = useCallback(() => {
+    /* Reconciliation is deliberately NOT awaited with the rest. It reads every
+     * account's ledger, so it is the slowest call on the page, and holding the
+     * render for it meant staring at "Loading..." while the two fast calls sat
+     * finished. It lands on its own and fills the banner in.
+     *
+     * A failure here only empties the banner. It is a report ABOUT the data,
+     * not the data, so it must not take the page down with it.
+     *
+     * The old report is left on screen while the new one is in flight rather
+     * than blanked first: after a freeze the number is about to be the same,
+     * and a banner that empties and refills reads as a fault. */
+    api.adminReconciliation().then(setReport).catch(() => setReport(null))
+
+    return Promise.all([api.adminAccounts(), api.adminAudit(), refreshAccounts()])
+      .then(([accountList, audit]) => {
+        setAccounts(accountList.accounts)
+        setEntries(audit.entries)
+        setError(null)
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false))
+  }, [refreshAccounts])
 
   useEffect(() => {
     load()
@@ -69,7 +79,19 @@ export default function Admin() {
   if (loading) return <p>Loading...</p>
   if (error) return <p className="error">{error}</p>
 
-  const visible = accounts.filter((account) => matches(account, query, kind))
+  /* Nothing is listed until something is typed.
+   *
+   * Every row is a component holding its own state and two forms, so rendering
+   * the whole roster costs real time and gets worse with every account opened -
+   * and an admin arrives here looking for ONE account, not for a list of all of
+   * them. The type filter alone does not open the gate either: "all the
+   * checking accounts" is the same dump with fewer rows.
+   *
+   * Note this trims what is RENDERED, not what is fetched - the accounts are
+   * already in memory. Moving the search to the server is the next step if the
+   * roster ever gets big enough for the fetch itself to hurt. */
+  const searching = query.trim().length > 0
+  const visible = searching ? accounts.filter((account) => matches(account, query, kind)) : []
 
   return (
     <div className="admin theme-admin">
@@ -79,7 +101,11 @@ export default function Admin() {
         * writing a matching ledger entry. It should read balanced on every
         * refresh; the day it does not, this is the first thing to look at.
         * The state is in the words, not only in the colour. */}
-      {report && (
+      {/* Held open while the report is in flight, so the page does not jump when
+        * it arrives a moment after everything else. */}
+      {!report ? (
+        <p className="admin-reconciliation hint">Checking every balance against its ledger…</p>
+      ) : (
         <p className={report.balanced ? 'admin-reconciliation hint' : 'admin-reconciliation error'}>
           {report.balanced
             ? `Balanced — ${report.checked} accounts checked, every balance matches its ledger.`
@@ -117,15 +143,22 @@ export default function Admin() {
               </select>
             </label>
           </div>
-          <p className="hint">
-            Showing {visible.length} of {accounts.length} accounts.
-          </p>
-          {visible.length === 0 ? (
+          {!searching ? (
+            <p className="hint">
+              {accounts.length} accounts loaded. Type a name or an account id above to
+              find one.
+            </p>
+          ) : visible.length === 0 ? (
             <p>Nothing matches that search.</p>
           ) : (
-            visible.map((account) => (
-              <AdminAccountRow key={account.accountId} account={account} onChanged={load} />
-            ))
+            <>
+              <p className="hint">
+                {visible.length} of {accounts.length} accounts match.
+              </p>
+              {visible.map((account) => (
+                <AdminAccountRow key={account.accountId} account={account} onChanged={load} />
+              ))}
+            </>
           )}
         </section>
       </div>

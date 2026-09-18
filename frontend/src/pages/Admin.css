@@ -27,9 +27,11 @@
   border-left: 4px solid var(--admin-accent);
 }
 
-/* --navy, so this follows the theme rather than hard-coding a second red. */
+/* --brand-ink, not --navy: inside .theme-admin the first is the staff red as
+ * INK (themed light for dark mode) and the second is the fill white sits on,
+ * which is 1.95:1 as text on a dark surface. */
 .admin h2 {
-  color: var(--navy);
+  color: var(--brand-ink);
   font-size: 1.1rem;
   margin-top: 1.5rem;
 }
@@ -107,12 +109,24 @@
 }
 
 /* FREEZE / UNFREEZE / ADJUST_CREDIT / ADJUST_DEBIT - the action is what you
- * scan for, so it goes first and carries the theme colour. */
+ * scan for, so it goes first and carries the staff red.
+ *
+ * --admin-ink rather than --brand-ink, because this log also renders on an
+ * admin's HOME page, which is outside .theme-admin. --brand-ink there is the
+ * ordinary navy, so the labels came out navy on one page and red on the other.
+ * --admin-ink is themed at :root, so it is the staff red in both places and
+ * legible in both themes. */
 .admin-log-action {
   display: block;
   font-weight: 600;
   font-size: 0.75rem;
-  color: var(--navy);
+  color: var(--admin-ink);
+}
+
+/* The account type on an admin row - CHECKING / SAVINGS / CREDIT. Same ink, so
+ * the thing you scan the list for reads the same as the log beside it. */
+.admin-account-type {
+  color: var(--admin-ink);
 }
 
 .admin-log-where {
@@ -151,4 +165,14 @@
  * The unbalanced case keeps .error's red. */
 .admin .admin-reconciliation.hint {
   color: var(--text);
+}
+
+/* The greeting on an admin's own home page.
+ *
+ * Lives here beside the audit log rules for the same reason they do: that page
+ * is outside .theme-admin, so --brand-ink there is the ordinary navy. --admin-ink
+ * is themed at :root, so this is the staff red in light mode and the legible
+ * light red in dark, matching the log directly beneath it. */
+.staff-heading {
+  color: var(--admin-ink);
 }

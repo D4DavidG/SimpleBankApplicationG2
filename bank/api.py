@@ -685,8 +685,12 @@ class BankAPI:
 
     def admin_accounts(self, request: Request) -> tuple[int, dict]:
         accounts = self.service.all_accounts(request.actor)
+        # Every owner in one read, then looked up in memory. The obvious version
+        # calls get_user() inside the comprehension, which is a query per
+        # account - 37 of them here, and one more for every account opened.
+        owners = {u.user_id: u for u in self.service.store.all_users()}
         return 200, {"accounts": [
-            account_json(a, self.service.store.get_user(a.user_id)) for a in accounts
+            account_json(a, owners.get(a.user_id)) for a in accounts
         ]}
 
     def admin_freeze(self, request: Request) -> tuple[int, dict]:
