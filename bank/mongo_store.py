@@ -3,7 +3,7 @@
 The service layer calls add_account, get_account, add_transaction and the rest
 without knowing which store it was given. This class answers them from MongoDB,
 so data survives a restart and every server pointed at the same database sees the
-same records. Atlas setup is in mongo.md.
+same records. Atlas setup is in the README.
 
 What the in-memory store does in Python, this one hands to the database:
 

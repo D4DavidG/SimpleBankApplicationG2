@@ -8,7 +8,7 @@ What is stored in the database
         simple_bank_<yourname> your own dev data - default to this one
         simple_bank_test       the test suite, wiped constantly
 
-    Connecting, and what to do when it will not, is mongo.md. The HTTP side is
+    Connecting, and what to do when it will not, is the README. The HTTP side is
     APIDocs.txt. This file is the middle one: what documents exist, what each
     field means, and which rules the database itself enforces.
 

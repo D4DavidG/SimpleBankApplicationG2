@@ -54,7 +54,7 @@ def open_mongo_store(uri: str, args):
     db_name = os.environ.get("MONGODB_DB", "").strip()
     if not db_name:
         print("  MONGODB_URI is set, but MONGODB_DB is not.")
-        print("  Add MONGODB_DB=simple_bank_yourname to .env (see mongo.md).")
+        print("  Add MONGODB_DB=simple_bank_yourname to .env (see the README).")
         return None
     if args.reset and db_name == SHARED_DB and not args.force:
         print(f"  refusing to --reset the shared {SHARED_DB!r} database.")

@@ -24,7 +24,7 @@ feature nobody on the team can walk a room through is worse than no feature.
 
 | Layer | State |
 | --- | --- |
-| Domain, services, repository | Done. 164 tests, 16 skip without a Mongo cluster. |
+| Domain, services, repository | Done. 168 tests, 16 skip without a Mongo cluster. |
 | REST API | Done. 19 routes, `bank/api.py`. Contract in `APIDocs.txt`. |
 | Auth | Done. Register, login, `/api/auth/me`, stored tokens, ADMIN role. |
 | Database | Done for MongoDB Atlas. In-memory fallback. **MySQL not started.** |
@@ -43,7 +43,7 @@ another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
       shared form. `Deposit.jsx` and `Withdraw.jsx` render it with `fixedKind`,
       so the three actions share one set of money rules.
 - [x] **Frontend pages.** All six screens in brief §7 exist, plus transfer,
-      profile and admin. Owner table: [frontend/PLAN.md](frontend/PLAN.md).
+      profile and admin.
 - [ ] **SQL script.** A submission requirement and it does not exist in the repo.
       The schema and inserts are written and verified in the team's
       `seed_data_bank_app.md` planning doc, §3–4. Extract to `sql/schema.sql`
@@ -67,7 +67,7 @@ another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
 
 ### Stretch — only after the above are demoable
 
-- [ ] **AI assistant.** Scoped in [frontend/PLAN.md](frontend/PLAN.md). Read-only,
+- [ ] **AI assistant.** Read-only,
       three tools, session-scoped. Behind a flag so an unfinished one is switched
       off and the demo is unaffected.
 - [ ] **Deployment**, if the program expects it. Unconfirmed.
@@ -76,7 +76,7 @@ another. Seed login `aaron.forrester@example.com`, password `BankDemo123!`.
 
 Refresh tokens, httpOnly cookie sessions, rate limiting on login, and a second
 account-type minimum balance. All are the right end state and none is graded.
-They are listed in README §13 with the reasoning.
+They are listed under "Not done yet" in the README.
 
 ---
 
@@ -167,6 +167,6 @@ pymongo and nothing else. Keep it that way.
 | --- | --- |
 | `bank/` | The backend. `api.py` has the route table; `services.py` has the rules. |
 | `APIDocs.txt` | The API contract. The frontend's source of truth. |
-| `frontend/` | React + Vite. See its README and PLAN. |
-| `test_*.py` | 164 tests. `python -m unittest -q`. |
+| `frontend/` | React + Vite. Every screen in brief §7. |
+| `test_*.py` | 168 tests. `python -m unittest -q`. |
 | `tools/check_mongo.py` | Run when Atlas will not connect. It explains what failed. |

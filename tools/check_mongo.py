@@ -82,7 +82,7 @@ class Out:
                 else:
                     print(f"        - {fix}")
         print()
-        print("      Full details: mongo.md, section 'When it does not work'.")
+        print("      Full details: README, section 'Using MongoDB Atlas'.")
 
 
 def die(*_):
@@ -150,7 +150,7 @@ def check_uri():
         Out.fail(
             "MONGODB_URI is not set.",
             f"Create {ENV_FILE.name}: copy .env.example .env",
-            "Set MONGODB_URI to your Atlas string (mongo.md, step B3).",
+            "Set MONGODB_URI to your Atlas string (see the README).",
         )
         die()
 
@@ -188,7 +188,7 @@ def check_uri():
         Out.ok(f"MONGODB_DB = {db_name}")
         if db_name == "simple_bank":
             Out.info("NOTE: that is the SHARED demo database. For day-to-day work")
-            Out.info("      prefer simple_bank_<yourname> - see mongo.md.")
+            Out.info("      prefer simple_bank_<yourname> - see the README.")
     return uri, db_name
 
 

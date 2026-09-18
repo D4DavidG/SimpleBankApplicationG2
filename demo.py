@@ -94,7 +94,7 @@ def open_store(args):
     config.load_env()
     uri = os.environ.get("MONGODB_URI", "").strip()
     if not uri:
-        print("  --mongo needs MONGODB_URI in .env. See mongo.md, or run:")
+        print("  --mongo needs MONGODB_URI in .env. See the README, or run:")
         print("      python tools/check_mongo.py")
         raise SystemExit(1)
     try:

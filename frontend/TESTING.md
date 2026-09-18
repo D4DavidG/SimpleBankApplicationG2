@@ -37,7 +37,7 @@ Covers: `Login.jsx`, `Register.jsx`, `Home.jsx` (landing state), `Profile.jsx`,
 
 Covers: `Accounts.jsx`, `AccountDetails.jsx`, `OpenAccount.jsx`,
 `TransactionMenu.jsx` / `Deposit.jsx` / `Withdraw.jsx` / `Transfer.jsx` (whichever
-the team settled on — see PLAN.md §2), `Transactions.jsx`.
+the team settled on), `Transactions.jsx`.
 
 - [ ✅ ] Open a CHECKING account with a zero opening balance → appears in account list
 - [ ✅ ] Open a SAVINGS account with a non-zero opening balance → balance shown matches, and a DEPOSIT transaction exists for it
@@ -56,7 +56,7 @@ the team settled on — see PLAN.md §2), `Transactions.jsx`.
 - [ ✅ ] Withdraw an amount ≤ available balance → succeeds, balance updates
 - [ ✅ ] Withdraw more than the balance → "insufficient funds" error, balance unchanged
 <br></br>
-- [ ❌ ] Deposit/withdraw both use a confirm step before submitting (per PLAN.md §5), not a single blind submit
+- [ ❌ ] Deposit/withdraw both use a confirm step before submitting, not a single blind submit
 
     *There is only the one "Submit deposit" button.*
 <br></br>
@@ -101,7 +101,7 @@ plus the admin/customer boundary.
 Runs across *every* page above — do this pass after A/B/C have exercised the
 flows once, so there's data (frozen accounts, recent transactions) to look at.
 
-- [ ] Every dollar amount on screen is formatted from cents correctly (spot check: seed accounts 9 and 18 — a five-digit balance next to a one-cent one should still line up, per PLAN.md §8)
+- [ ] Every dollar amount on screen is formatted from cents correctly (spot check: seed accounts 9 and 18 — a five-digit balance next to a one-cent one should still line up)
 - [ ] No page does arithmetic on a balance in the browser — it always reflects a fresh server response after an action
 - [ ] Credits/debits are distinguished by a sign or word (e.g. "+", "-", "DEPOSIT"), never colour alone
 - [ ] Every form field with an error has the error tied to it (visually and via `aria-describedby` if implemented) — not just a red border
