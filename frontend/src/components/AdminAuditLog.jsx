@@ -32,7 +32,10 @@ function easternTime(iso) {
   return Number.isNaN(when.getTime()) ? null : EASTERN.format(when)
 }
 
-export default function AdminAuditLog({ entries }) {
+// `entries` defaults to empty: a caller that has not loaded them yet, or cannot,
+// should get the empty state rather than a crash. This component's whole job is
+// to render a list, and no list is a short one.
+export default function AdminAuditLog({ entries = [] }) {
   if (entries.length === 0) {
     return <p className="hint">Nothing yet. Freeze or adjust an account and it appears here.</p>
   }

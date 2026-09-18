@@ -10,14 +10,25 @@ export function accountLabel(account) {
   return `${type}...${account.accountId}`
 }
 
+/* Colour carries the account TYPE, not just identity: blues and greens are
+ * current accounts, oranges and reds are savings, and credit is its own thing.
+ * So the palette tells you what kind of account you are looking at before you
+ * read the label, and the shade within it tells two of the same kind apart.
+ *
+ * Every shade below clears 4.5:1 with white at the lightest end of its
+ * gradient - the ratios are in index.css beside each rule. */
+const CHECKING_SHADES = ['c0', 'c1', 'c2', 'c3']  // teal, emerald, cyan, blue
+const SAVINGS_SHADES = ['s0', 's1', 's2', 's3']   // amber, orange, rose, red
+
 /**
- * The colour class suffix. Credit always looks the same, because it is a
- * different product rather than another account of the same kind - that is the
- * whole point of it being recognisable. Everything else is picked by
- * accountId, so an account keeps its colour when another one is closed.
+ * The colour class suffix. Credit is always the same, because it is a different
+ * product rather than another account of the same kind. The others are picked
+ * by accountId, so an account keeps its shade when another one is closed.
  */
 export function accountTone(account) {
-  return account.accountType === 'CREDIT' ? 'credit' : String(account.accountId % 6)
+  if (account.accountType === 'CREDIT') return 'credit'
+  const shades = account.accountType === 'SAVINGS' ? SAVINGS_SHADES : CHECKING_SHADES
+  return shades[account.accountId % shades.length]
 }
 
 export const isCredit = (account) => account.accountType === 'CREDIT'

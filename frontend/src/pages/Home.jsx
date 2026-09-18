@@ -8,7 +8,9 @@
  * The offer shows either way. The only thing signing in removes is the sign-in
  * form beside it.
  */
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import * as api from '../lib/api'
 import { useAuth } from '../context/auth-context'
 import { formatCents } from '../lib/money'
 import { accountLabel, accountTone } from '../lib/accounts'
@@ -84,6 +86,16 @@ function Landing() {
 
 function Dashboard() {
   const { user, accounts, isAdmin } = useAuth()
+  const [auditEntries, setAuditEntries] = useState([])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    // A customer would get a 403 here, which is why it is behind the role check
+    // rather than being fetched for everybody and thrown away.
+    api.adminAudit()
+      .then((data) => setAuditEntries(data.entries ?? data.audit ?? []))
+      .catch(() => setAuditEntries([]))
+  }, [isAdmin])
 
   return (
     <div>
@@ -108,7 +120,7 @@ function Dashboard() {
             Admin tools
           </Link>
           <h2 className="audit-heading">Recent activity</h2>
-          <AdminAuditLog />
+          <AdminAuditLog entries={auditEntries} />
         </>
       ) : (
         <>
