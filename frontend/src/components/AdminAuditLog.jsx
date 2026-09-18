@@ -55,6 +55,8 @@ function haystack(entry) {
   return [
     entry.action,
     entry.reason,
+    entry.actorName ?? '',
+    entry.accountOwnerName ?? '',
     `account #${entry.accountId}`,
     `${entry.accountId}`,
     `user #${entry.actorUserId}`,
@@ -63,11 +65,27 @@ function haystack(entry) {
   ].join(' ').toLowerCase()
 }
 
+/* "Aaron Forrester's account #31", or just "account #31" when the name cannot
+ * be resolved. The id is always shown: the name is a caption on it, and two
+ * customers can share a name while two ids cannot. */
+function whose(entry) {
+  return entry.accountOwnerName
+    ? `${entry.accountOwnerName}'s account #${entry.accountId}`
+    : `account #${entry.accountId}`
+}
+
+function byWhom(entry) {
+  return entry.actorName
+    ? `by ${entry.actorName} (#${entry.actorUserId})`
+    : `by user #${entry.actorUserId}`
+}
+
 // `entries` defaults to empty: a caller that has not loaded them yet, or cannot,
 // should get the empty state rather than a crash. This component's whole job is
 // to render a list, and no list is a short one.
 export default function AdminAuditLog({ entries = [] }) {
   const [query, setQuery] = useState('')
+  const [showAll, setShowAll] = useState(false)
 
   // Newest first, with the searchable text attached once rather than rebuilt on
   // every keystroke.
@@ -81,7 +99,8 @@ export default function AdminAuditLog({ entries = [] }) {
   const matches = searching ? newestFirst.filter((row) => row.text.includes(needle)) : newestFirst
   // Searching replaces the five rather than filtering within them - otherwise a
   // search that matched something older would appear to find nothing.
-  const shown = searching ? matches : matches.slice(0, DEFAULT_SHOWN)
+  const shown = searching || showAll ? matches : matches.slice(0, DEFAULT_SHOWN)
+  const hidden = matches.length - shown.length
 
   if (entries.length === 0) {
     return <p className="hint">Nothing yet. Freeze or adjust an account and it appears here.</p>
@@ -102,7 +121,9 @@ export default function AdminAuditLog({ entries = [] }) {
       <p className="hint">
         {searching
           ? `${matches.length} of ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} match.`
-          : `Showing the ${Math.min(DEFAULT_SHOWN, entries.length)} most recent of ${entries.length}. Search to see the rest.`}
+          : showAll
+            ? `All ${entries.length} entries, newest first.`
+            : `The ${shown.length} most recent of ${entries.length}.`}
       </p>
 
       {shown.length === 0 ? (
@@ -116,12 +137,25 @@ export default function AdminAuditLog({ entries = [] }) {
                 {easternTime(entry.createdAt) ?? 'time not recorded'}
               </span>
               <span className="admin-log-where">
-                account #{entry.accountId} · by user #{entry.actorUserId}
+                {whose(entry)} · {byWhom(entry)}
               </span>
               <span>{entry.reason}</span>
             </li>
           ))}
         </ol>
+      )}
+
+      {/* Only while a search is not running: during a search the list is
+          already everything that matches, and a "show all" under it would be
+          offering to undo the search without saying so. */}
+      {!searching && entries.length > DEFAULT_SHOWN && (
+        <button type="button" className="secondary audit-more"
+                onClick={() => setShowAll(!showAll)}>
+          {showAll ? 'Show the 5 most recent' : `List all ${entries.length} entries`}
+        </button>
+      )}
+      {!searching && !showAll && hidden > 0 && (
+        <span className="hint"> {hidden} older {hidden === 1 ? 'entry' : 'entries'} hidden.</span>
       )}
     </div>
   )

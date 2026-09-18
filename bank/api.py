@@ -735,9 +735,27 @@ class BankAPI:
         `createdAt` goes out as UTC in ISO 8601, like every other timestamp in
         this API. Which zone to show it in is the client's decision, not the
         server's - the admin page renders it in Eastern time.
+
+        The ids come with names attached. "user #28 froze account #31" is a
+        sentence you have to go and look two things up to understand, and an
+        audit log nobody reads is not doing the job it exists for. The names are
+        resolved here rather than in the browser because the alternative is the
+        client fetching every user and every account to caption one list.
+
+        A name can be missing - an account closed since, or a row older than the
+        user record it names - so each falls back to None rather than failing
+        the whole request. The ids are still there either way.
         """
+        # Two lookups built once, not one query per row: the log is the one
+        # endpoint here that grows without limit.
+        users = {u.user_id: u.name for u in self.service.store.all_users()}
+        owners = {a.account_id: users.get(a.user_id)
+                  for a in self.service.store.all_accounts()}
         return 200, {"entries": [
-            {"actorUserId": a, "action": b, "accountId": c, "reason": d,
+            {"actorUserId": a, "actorName": users.get(a),
+             "action": b,
+             "accountId": c, "accountOwnerName": owners.get(c),
+             "reason": d,
              "createdAt": e.isoformat()}
             for a, b, c, d, e in self.service.audit_log(request.actor)
         ]}

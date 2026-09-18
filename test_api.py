@@ -754,6 +754,44 @@ class TestTransferToAPerson(ApiTestCase):
         self.assertEqual(first["credit"]["accountId"], second["credit"]["accountId"])
 
 
+class TestAuditNames(ApiTestCase):
+    """The audit log carries names, not just ids."""
+
+    def freeze(self):
+        return self.post(f"/api/admin/accounts/{self.a_checking.account_id}/freeze",
+                         {"frozen": True, "reason": "a reason long enough to pass"},
+                         self.david)
+
+    def test_rows_name_the_admin_and_the_account_owner(self):
+        self.freeze()
+        _, body = self.get("/api/admin/audit", self.david)
+        row = body["entries"][-1]
+        self.assertEqual(row["actorName"], "David Gusmao")
+        self.assertEqual(row["accountOwnerName"], "Aaron Forrester")
+
+    def test_the_ids_are_still_there(self):
+        """The name is a caption on the id, not a replacement for it."""
+        self.freeze()
+        _, body = self.get("/api/admin/audit", self.david)
+        row = body["entries"][-1]
+        self.assertEqual(row["actorUserId"], self.david.user_id)
+        self.assertEqual(row["accountId"], self.a_checking.account_id)
+
+    def test_a_name_that_cannot_be_resolved_is_null_not_an_error(self):
+        """A row can outlive the account it names. That must caption as unknown
+        rather than fail the whole log."""
+        self.freeze()
+        # Drop the account out from under the row the way a closure would.
+        del self.store._accounts[self.a_checking.account_id]
+        status, body = self.get("/api/admin/audit", self.david)
+        self.assertEqual(status, 200)
+        self.assertIsNone(body["entries"][-1]["accountOwnerName"])
+        self.assertEqual(body["entries"][-1]["actorName"], "David Gusmao")
+
+    def test_a_customer_still_cannot_read_it(self):
+        self.assertEqual(self.get("/api/admin/audit", self.aaron)[0], 403)
+
+
 class TestOwnershipOverHttp(ApiTestCase):
     """The IDOR row from the seed document's test table, at the HTTP boundary."""
 

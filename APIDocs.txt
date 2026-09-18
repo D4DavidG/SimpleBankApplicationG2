@@ -542,10 +542,21 @@ Page
 AuditEntry
     {
         integer actorUserId,           (the admin who did it)
+        string actorName,              (their name, or null if it cannot be resolved)
         string action,                 (FREEZE, UNFREEZE, ADJUST_CREDIT, ADJUST_DEBIT)
         integer accountId,
-        string reason
+        string accountOwnerName,       (whose account it was, or null)
+        string reason,
+        string createdAt
     }
+    The names are captions on the ids, not replacements for them: both are
+    always sent. "user #28 froze account #31" is a sentence you have to look
+    two things up to understand, and an audit log nobody reads is not doing
+    the job it exists for.
+
+    Either name may be null. A row outlives the records it names - an account
+    closed since, a user removed - and a log that failed to load because one
+    caption was missing would be worse than one with a gap in it.
 
 Discrepancy
     {
